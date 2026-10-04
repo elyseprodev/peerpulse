@@ -47,19 +47,40 @@ export const useSkillsStore = defineStore('skills', () => {
     })
   }
 
+  /**
+   * The results of the newest search only.
+   *
+   * Two searches are in flight whenever a member types in the search box and
+   * clicks a filter before the debounce lands, and the network does not promise
+   * to answer them in order. Without this guard the slower *earlier* response
+   * could overwrite the newer one — the page would settle on the wrong results,
+   * or on the right ones for a moment and then flick back. Each call takes a
+   * ticket, and a call whose ticket is no longer the newest is discarded.
+   */
+  let searchTicket = 0
+
   async function search(overrides: Partial<SkillFilter> = {}): Promise<void> {
+    const ticket = ++searchTicket
     loading.value = true
     error.value = null
     try {
-      filters.value = { ...filters.value, ...overrides }
+      // Snapshot the filter *before* the first await. Reading `filters.value`
+      // again after `await getBackend()` let a concurrent search mutate it in
+      // between, so this request would carry the other one's filters — the
+      // results then matched neither the URL nor anything the member selected.
+      const request: SkillFilter = { ...filters.value, ...overrides }
+      filters.value = request
       const backend = await getBackend()
-      listings.value = await backend.listSkills({ ...filters.value, limit: 60 })
-      await hydrateOwners(listings.value)
+      const items = await backend.listSkills({ ...request, limit: 60 })
+      if (ticket !== searchTicket) return
+      listings.value = items
+      await hydrateOwners(items)
     } catch (e) {
+      if (ticket !== searchTicket) return
       error.value = e instanceof Error ? e.message : 'Could not load skill listings.'
       listings.value = []
     } finally {
-      loading.value = false
+      if (ticket === searchTicket) loading.value = false
     }
   }
 

@@ -44,6 +44,12 @@ import {
   type QueryConstraint,
 } from 'firebase/firestore'
 import { httpsCallable, type Functions } from 'firebase/functions'
+import {
+  discoverSkills,
+  discoveryOwner,
+  needsClientSideFiltering,
+  type DiscoveryOwner,
+} from '@shared'
 import type {
   AppNotification,
   Booking,
@@ -373,42 +379,26 @@ export class FirebaseBackend implements PeerPulseBackend {
     }
     if (filter.categoryId) constraints.push(where('categoryId', '==', filter.categoryId))
     if (filter.format) constraints.push(where('format', '==', filter.format))
-    constraints.push(queryLimit(filter.limit ?? 60))
+    // The limit may only be pushed into the query when the database can answer it
+    // in full — otherwise a matching listing ranked after the cut-off is lost
+    // silently. Everything else is decided by the shared pipeline below, which the
+    // local backend runs too.
+    if (!needsClientSideFiltering(filter)) constraints.push(queryLimit(filter.limit ?? 60))
 
     const snapshot = await getDocs(query(collection(db, COLLECTIONS.skills), ...constraints))
-    let skills = fromQuery<SkillListing>(snapshot.docs)
-    if (!filter.includeUnpublished) {
-      skills = skills.filter((s) => s.status === 'published' && !['hidden', 'removed'].includes(s.moderation?.state ?? 'clean'))
+    const candidates = fromQuery<SkillListing>(snapshot.docs)
+
+    // Owner names and availability are part of discovery (search and the weekday
+    // filter), so fetch the owners of the candidates in one round trip.
+    const ownerUids = [...new Set(candidates.map((skill) => skill.ownerUid))]
+    const owners: Record<string, DiscoveryOwner> = {}
+    if (ownerUids.length) {
+      for (const profile of await this.getUsers(ownerUids)) owners[profile.uid] = discoveryOwner(profile)
     }
-    if (filter.level && filter.level !== 'any') skills = skills.filter((s) => s.level === filter.level || s.level === 'any')
-    if (filter.language) skills = skills.filter((s) => s.languages.includes(filter.language!))
-    if (filter.maxDurationMinutes) skills = skills.filter((s) => s.durationMinutes <= filter.maxDurationMinutes!)
-    if (filter.weekday !== null && filter.weekday !== undefined) {
-      const owners = await this.getUsers([...new Set(skills.map((s) => s.ownerUid))])
-      const availabilityByOwner = new Map(owners.map((owner) => [owner.uid, owner.availability ?? []]))
-      skills = skills.filter((s) => (availabilityByOwner.get(s.ownerUid) ?? []).some((a) => a.weekday === filter.weekday))
-    }
-    if (filter.query) {
-      const needle = filter.query.toLowerCase()
-      skills = skills.filter((s) =>
-        [s.title, s.description, ...s.tags].some((field) => field.toLowerCase().includes(needle)),
-      )
-    }
-    const rating = (skills_: SkillListing) => (skills_.reviewCount ? skills_.ratingSum / skills_.reviewCount : 0)
-    switch (filter.sort) {
-      case 'rating':
-        skills.sort((a, b) => rating(b) - rating(a))
-        break
-      case 'recent':
-        skills.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
-        break
-      case 'duration':
-        skills.sort((a, b) => a.durationMinutes - b.durationMinutes)
-        break
-      default:
-        skills.sort((a, b) => rating(b) * 100 + b.completedCount * 5 - (rating(a) * 100 + a.completedCount * 5))
-    }
-    return skills
+
+    return discoverSkills(candidates, filter, owners, filter.limit, {
+      includeUnpublished: filter.includeUnpublished,
+    })
   }
 
   async getSkill(id: string): Promise<SkillListing | null> {

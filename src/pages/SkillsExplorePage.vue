@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import type { SessionFormat, SkillLevel } from '@shared/domain'
+import type { SessionFormat, SkillFilter, SkillLevel } from '@shared/domain'
 import { useSkillsStore } from '@/stores/skills'
 import { useBookingStore } from '@/stores/bookings'
 import { SKILL_CATEGORIES, SESSION_FORMAT_LABELS, SKILL_LEVEL_LABELS, LANGUAGE_OPTIONS } from '@/lib/catalog'
@@ -23,11 +23,78 @@ const query = ref('')
 const showFilters = ref(false)
 const debounce = ref<ReturnType<typeof setTimeout> | null>(null)
 
+/**
+ * Filter state lives in the URL.
+ *
+ * FR-7 asks for the filter state to be mirrored into the query string, and the
+ * first implementation mirrored two of the eight things that can be filtered —
+ * so a shared link to "advanced, Spanish, under an hour, on Saturday" silently
+ * dropped everything but the text search. Everything is now read on mount (and
+ * on a back/forward navigation), written on every change, and *validated* on the
+ * way in: a hand-edited `?level=banana` must not reach the store.
+ */
+const LEVELS = Object.keys(SKILL_LEVEL_LABELS) as SkillLevel[]
+const FORMATS = Object.keys(SESSION_FORMAT_LABELS) as SessionFormat[]
+const SORTS = ['relevance', 'rating', 'recent', 'duration'] as const
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+
+function stringParam(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null
+}
+
+function numberParam(value: unknown, allowed?: number[]): number | null {
+  const raw = stringParam(value)
+  if (raw === null) return null
+  const parsed = Number(raw)
+  if (!Number.isFinite(parsed)) return null
+  return allowed && !allowed.includes(parsed) ? null : parsed
+}
+
+/** The URL, turned into a filter — dropping anything a person typed by hand. */
+function filtersFromQuery(source: Record<string, unknown>): Partial<SkillFilter> {
+  const level = stringParam(source.level)
+  const format = stringParam(source.format)
+  const sort = stringParam(source.sort)
+  return {
+    query: stringParam(source.q) ?? '',
+    categoryId: stringParam(source.category),
+    level: level && LEVELS.includes(level as SkillLevel) ? (level as SkillLevel) : null,
+    format: format && FORMATS.includes(format as SessionFormat) ? (format as SessionFormat) : null,
+    language: stringParam(source.language),
+    weekday: numberParam(source.weekday, [0, 1, 2, 3, 4, 5, 6]),
+    maxDurationMinutes: numberParam(source.maxDuration),
+    sort: sort && (SORTS as readonly string[]).includes(sort) ? (sort as SkillFilter['sort']) : 'relevance',
+  }
+}
+
+/** The filter, turned into a query string — omitting anything at its default. */
+function queryFromFilters(filters: SkillFilter): Record<string, string> {
+  const params: Record<string, string> = {}
+  if (filters.query) params.q = filters.query
+  if (filters.categoryId) params.category = filters.categoryId
+  if (filters.level) params.level = filters.level
+  if (filters.format) params.format = filters.format
+  if (filters.language) params.language = filters.language
+  if (filters.weekday !== null && filters.weekday !== undefined) params.weekday = String(filters.weekday)
+  if (filters.maxDurationMinutes) params.maxDuration = String(filters.maxDurationMinutes)
+  if (filters.sort && filters.sort !== 'relevance') params.sort = filters.sort
+  return params
+}
+
+function sameParams(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)])
+  for (const key of keys) {
+    const left = a[key] === undefined || a[key] === null ? '' : String(a[key])
+    const right = b[key] === undefined || b[key] === null ? '' : String(b[key])
+    if (left !== right) return false
+  }
+  return true
+}
+
 onMounted(async () => {
-  const category = typeof route.query.category === 'string' ? route.query.category : null
-  const search = typeof route.query.q === 'string' ? route.query.q : ''
-  query.value = search
-  await Promise.all([skills.search({ categoryId: category, query: search }), bookings.ensureConfig()])
+  const initial = filtersFromQuery(route.query as Record<string, unknown>)
+  query.value = initial.query ?? ''
+  await Promise.all([skills.search(initial), bookings.ensureConfig()])
 })
 
 watch(query, (value) => {
@@ -37,19 +104,42 @@ watch(query, (value) => {
   }, 320)
 })
 
+// A back/forward navigation, or a link that arrives with different filters, must
+// update the page — not just the address bar.
+watch(
+  () => route.query,
+  (next, previous) => {
+    if (sameParams(next, previous)) return
+    const parsed = filtersFromQuery(next as Record<string, unknown>)
+    if (sameParams(queryFromFilters(skills.filters), next as Record<string, unknown>)) return
+    query.value = parsed.query ?? ''
+    skills.resetFilters()
+    void skills.search(parsed)
+  },
+)
+
 async function applyFilters(overrides: Record<string, unknown> = {}): Promise<void> {
-  const next = { ...overrides }
-  await skills.search(next as never)
-  const searchParams: Record<string, string> = {}
-  if (skills.filters.query) searchParams.q = String(skills.filters.query)
-  if (skills.filters.categoryId) searchParams.category = String(skills.filters.categoryId)
-  await router.replace({ query: searchParams })
+  await skills.search(overrides as never)
+  const params = queryFromFilters(skills.filters)
+  // `replace`, not `push`: a dozen keystrokes should not fill the back stack.
+  if (!sameParams(params, route.query as Record<string, unknown>)) {
+    await router.replace({ query: params })
+  }
 }
 
 function clearAll(): void {
   query.value = ''
   skills.resetFilters()
-  void applyFilters({ query: '', categoryId: null, level: null, format: null, language: null, weekday: null, maxDurationMinutes: null })
+  void applyFilters({
+    query: '',
+    categoryId: null,
+    level: null,
+    format: null,
+    language: null,
+    weekday: null,
+    maxDurationMinutes: null,
+    sort: 'relevance',
+  })
 }
 
 const activeChips = computed(() => {
@@ -74,7 +164,7 @@ const activeChips = computed(() => {
   }
   if (f.weekday !== null && f.weekday !== undefined) {
     chips.push({
-      label: `Free on ${['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][f.weekday]}`,
+      label: `Free on ${WEEKDAYS[f.weekday]}`,
       clear: () => applyFilters({ weekday: null }),
     })
   }
@@ -246,19 +336,41 @@ const activeChips = computed(() => {
       />
     </div>
 
-    <AppEmptyState
-      v-else
-      class="mt-8"
-      icon="search"
-      title="No listings match those filters"
-      :description="
-        activeChips.length
-          ? 'Try widening your filters — or offer the skill yourself and let the exchange come to you.'
-          : 'Nothing has been published yet. Be the first to list a skill you would happily teach for an hour.'
-      "
-      action-label="Clear filters"
-      @action="clearAll"
-    />
+    <div v-else class="mt-8 space-y-4">
+      <AppEmptyState
+        icon="search"
+        title="No listings match those filters"
+        :description="
+          activeChips.length
+            ? 'Nothing on the exchange matches this combination yet. Widen one filter and it may appear.'
+            : 'Nothing has been published yet. Be the first to list a skill you would happily teach for an hour.'
+        "
+        action-label="Clear filters"
+        @action="clearAll"
+      />
+
+      <!-- Tell the member which single filter is closing the door, and offer the
+           one click that fixes it. "Try widening your filters" is advice; this is
+           a control. -->
+      <div v-if="activeChips.length" class="pp-card p-5">
+        <h2 class="font-display text-sm font-semibold text-ink">Which filter is in the way?</h2>
+        <p class="mt-1 text-xs text-muted">
+          Each suggestion removes one filter and keeps the rest, so you can see what the community offers further out.
+        </p>
+        <ul class="mt-4 space-y-2">
+          <li v-for="chip in activeChips" :key="`relax-${chip.label}`">
+            <button
+              type="button"
+              class="w-full rounded-xl border border-line/70 bg-canvas/30 px-4 py-3 text-left text-sm text-muted transition hover:border-brand/30 hover:text-ink"
+              @click="chip.clear()"
+            >
+              Drop <span class="font-medium text-ink">{{ chip.label }}</span>
+              <span class="ml-1 text-xs">→ see more listings</span>
+            </button>
+          </li>
+        </ul>
+      </div>
+    </div>
 
     <div class="pp-card mt-10 p-6">
       <div class="flex flex-wrap items-center justify-between gap-4">

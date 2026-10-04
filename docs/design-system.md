@@ -371,6 +371,7 @@ creates an auditable ledger row.”*
 | Loading a page | Route-level skeleton with the section headings already in place |
 | Empty ledger | Explains that the signup grant will appear here and links to the policy |
 | No sessions | Distinguishes “you have not booked anything” from “nothing matched your filters” (with a reset) |
+| No listings match the filters | `AppEmptyState` plus one row per active filter — “Drop *German* → see more listings” — because “try widening your filters” is advice and a button is a control. Each row removes exactly that filter and keeps the rest (`tests/unit/emptySearch.spec.ts`) |
 | Blocked settlement | Amber card naming the reason in plain language, the confirm action, and a dispute link |
 | Network/permission error | Inline error with the backend's message verbatim and a retry action |
 | Room not open yet | Countdown to the join window and a calendar link |

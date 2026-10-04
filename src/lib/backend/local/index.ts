@@ -15,8 +15,11 @@
 import {
   DEFAULT_PLATFORM_CONFIG,
   computeTokenAmount,
+  discoverSkills,
+  discoveryOwner,
   signupGrantAmount,
   validateSessionDuration,
+  type DiscoveryOwner,
 } from '@shared'
 import {
   type AppNotification,
@@ -510,43 +513,20 @@ export class LocalBackend implements PeerPulseBackend {
 
   async listSkills(filter: SkillFilter & { limit?: number; ownerUid?: string; includeUnpublished?: boolean } = {}): Promise<SkillListing[]> {
     const db = this.store
-    let items = Object.values(db.skills)
-    if (!filter.includeUnpublished) {
-      items = items.filter((s) => s.status === 'published' && s.moderation.state !== 'removed' && s.moderation.state !== 'hidden')
+    // The pipeline lives in `shared/discovery.ts`, which the Firestore backend
+    // also calls — see the note at the top of that module for the three ways the
+    // two implementations had drifted apart.
+    const candidates = filter.ownerUid
+      ? Object.values(db.skills).filter((skill) => skill.ownerUid === filter.ownerUid)
+      : Object.values(db.skills)
+    const owners: Record<string, DiscoveryOwner> = {}
+    for (const skill of candidates) {
+      const profile = db.users[skill.ownerUid]
+      if (profile && !owners[skill.ownerUid]) owners[skill.ownerUid] = discoveryOwner(profile)
     }
-    if (filter.ownerUid) items = items.filter((s) => s.ownerUid === filter.ownerUid)
-    if (filter.categoryId) items = items.filter((s) => s.categoryId === filter.categoryId)
-    if (filter.level && filter.level !== 'any') {
-      items = items.filter((s) => s.level === filter.level || s.level === 'any')
-    }
-    if (filter.format) items = items.filter((s) => s.format === filter.format)
-    if (filter.language) items = items.filter((s) => s.languages.includes(filter.language!))
-    if (filter.maxDurationMinutes) items = items.filter((s) => s.durationMinutes <= filter.maxDurationMinutes!)
-    if (filter.weekday !== null && filter.weekday !== undefined) {
-      items = items.filter((s) => (db.users[s.ownerUid]?.availability ?? []).some((a) => a.weekday === filter.weekday))
-    }
-    if (filter.query) {
-      const needle = filter.query.toLowerCase()
-      items = items.filter((s) => {
-        const owner = db.users[s.ownerUid]
-        return [s.title, s.description, ...s.tags, owner?.displayName ?? '', owner?.headline ?? ''].some((field) =>
-          field.toLowerCase().includes(needle),
-        )
-      })
-    }
-
-    const ratingOf = (s: SkillListing) => (s.reviewCount ? s.ratingSum / s.reviewCount : 0)
-    const sorted =
-      filter.sort === 'rating'
-        ? sortBy(items, ratingOf, 'desc')
-        : filter.sort === 'duration'
-          ? sortBy(items, (s) => s.durationMinutes, 'asc')
-          : filter.sort === 'recent'
-            ? sortBy(items, (s) => Date.parse(s.createdAt), 'desc')
-            : sortBy(items, (s) => ratingOf(s) * 100 + s.completedCount * 5 + s.bookingCount, 'desc')
-
-    const limited = filter.limit ? sorted.slice(0, filter.limit) : sorted
-    return limited.map((s) => deepClone(s))
+    return discoverSkills(candidates, filter, owners, filter.limit, {
+      includeUnpublished: filter.includeUnpublished,
+    }).map((skill) => deepClone(skill))
   }
 
   async getSkill(id: string): Promise<SkillListing | null> {

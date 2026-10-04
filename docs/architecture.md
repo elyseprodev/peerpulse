@@ -55,12 +55,17 @@ graph TB
 | --- | --- | --- | --- |
 | Presentation | `src/pages`, `src/components` | Render state, capture intent, show honest empty/error states | Contain business rules or write to the database directly |
 | State | `src/stores` | Cache, subscriptions, action orchestration, optimistic-free UI state | Re-implement policy; it calls the adapter |
-| Business rules | `shared/*` | Token policy, conflict detection, attendance verification, settlement planning, ledger ids | Depend on Vue, the DOM, Firebase or the browser |
+| Business rules | `shared/*` | Token policy, conflict detection, attendance verification, settlement planning, ledger ids, **marketplace discovery (filter, search, order)** | Depend on Vue, the DOM, Firebase or the browser |
 | Backend contract | `src/lib/backend/types.ts` | One interface, two implementations | Leak Firebase types into the app |
 | Reference backend | `src/lib/backend/local/*` | Run the product offline, cross-tab, deterministically | Be presented as production storage |
 | Production backend | `src/lib/backend/firebase/*` | Rule-governed reads, callable writes, Timestamp ⇄ ISO at the boundary | Move tokens from the client |
 | Server authority | `functions/*` | Bookings lifecycle, settlement, moderation, policy, roles, TURN minting | Duplicate the domain maths (it imports `shared/`) |
 | Media | `src/composables/useWebRTC.ts` | One peer connection, glare-free negotiation, presence/attendance heartbeat | Store media anywhere |
+
+`shared/discovery.ts` was added after the marketplace rules were found duplicated in both backends and drifted:
+production search did not look at a teacher's name, applied its `limit(60)` before filtering, and scored
+relevance differently from local mode. The two adapters now call the same pipeline — Firestore pushes down only
+the constraints it can enforce in full, and never truncates when client-side filtering is needed.
 
 The single most important structural decision: **`shared/*` is the only source of business logic.** The
 browser uses it to preview costs and refuse obviously invalid input; the Cloud Functions use it to decide what

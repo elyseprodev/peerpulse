@@ -44,7 +44,7 @@ database through `localStorage`.
 | `npm run dev` | Vite dev server on `0.0.0.0:5173` (local backend) |
 | `npm run build` | Typecheck (`vue-tsc`) then build to `dist/` |
 | `npm run typecheck` | Strict TypeScript check of app, shared and tests |
-| `npm test` | Vitest unit + integration suite (229 tests) |
+| `npm test` | Vitest unit + integration suite (269 tests) |
 | `cd functions && npm test` | Cloud Functions, executed against a real Admin SDK (43 tests) |
 | `npm run test:rules` | Firestore emulator security-rules suite (**needs a JDK**) |
 | `npm run sync:shared` | Mirror `shared/*` into `functions/src/shared/` |
@@ -102,7 +102,7 @@ Firestore ◀── rules: no client can move a token ──┘
 | Document | Contents |
 | --- | --- |
 | [`docs/requirements.md`](docs/requirements.md) | Roles, 34 functional requirements, the business rules and their enforcement, 8 user journeys |
-| [`docs/requirements-coverage.md`](docs/requirements-coverage.md) | Every requirement mapped to the code that implements it, the test that proves it, and what is *not* proven — 18 verified, 15 partial, 1 not implemented (Web Push), machine-checked against the repository |
+| [`docs/requirements-coverage.md`](docs/requirements-coverage.md) | Every requirement mapped to the code that implements it, the test that proves it, and what is *not* proven — 19 verified, 14 partial, 1 not implemented (Web Push), machine-checked against the repository |
 | [`docs/architecture.md`](docs/architecture.md) | Layers and trust boundaries, sequence diagrams for settlement and calls, deployment topology |
 | [`docs/firestore-data-model.md`](docs/firestore-data-model.md) | Every collection with a sample record, access matrix, indexes, TTL, invariants |
 | [`docs/webrtc-signaling.md`](docs/webrtc-signaling.md) | Firestore signalling, glare handling, ICE/TURN, presence and attendance, failure table, two-tab test script |
@@ -121,7 +121,7 @@ Honesty is a feature of this repository, so it is stated on the front page:
 
 **Verified in this repository**
 
-- 229 unit/integration tests pass (`npm test`): the token maths and its boundaries, booking conflicts and
+- 269 unit/integration tests pass (`npm test`): the token maths and its boundaries, booking conflicts and
   lifecycle, attendance verification and every settlement outcome, the whole reference backend, the
   accessibility-relevant behaviour of the UI primitives, a route smoke test that mounts the real app and walks
   every route in the table (guards included) asserting that each one renders without a render error, and an
@@ -130,7 +130,9 @@ Honesty is a feature of this repository, so it is stated on the front page:
   seed-integrity audit that re-derives every counter, score and balance in the demo world from the data behind
   it (that audit found two demo-data defects; the seed now derives its counters through the same shared helpers
   the engines use), a WebRTC negotiation suite that exercises offerer election, glare, the ICE queue and
-  teardown with a fake peer connection, a navigation-integrity suite that resolves every route-shaped string
+  teardown with a fake peer connection, a discovery suite that pins the marketplace rules in one shared module
+  (it found the two backends disagreeing: production search missed teachers' names, truncated before filtering,
+  and scored relevance differently from local mode), a navigation-integrity suite that resolves every route-shaped string
   literal in the source *and* every anchor the pages actually render (a typo'd CTA or a renamed route turns it
   red), a security-rules lint that parses `firestore.rules` and fails if a
   client write appears on a token-bearing collection, on an undocumented path, or anywhere an administrator
