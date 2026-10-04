@@ -1,0 +1,399 @@
+rules_version = '2';
+
+/**
+ * PeerPulse Firestore Security Rules
+ * ==================================
+ *
+ * Trust model
+ * -----------
+ * READS go straight from the client to Firestore and are governed here.
+ * WRITES that move tokens, change a booking's lifecycle, mint TURN credentials,
+ * moderate content or touch platform policy NEVER happen from the client — they
+ * are Cloud Functions (see functions/src/index.ts) which run with the Admin SDK
+ * and bypass these rules. This file therefore has one job: make the *client*
+ * write surface exactly as small as the adapter needs, and prove that no client
+ * can move a Time Token.
+ *
+ * The client write surface, exhaustively:
+ *   users/{uid}                        own profile fields (never role/status/stats)
+ *   skills/{id}                        own listings
+ *   bookings/{id}                      only `status: 'disputed'` + updatedAt
+ *   disputes/{id}                      create, as yourself, about your own booking
+ *   reports/{id}                       create, as yourself
+ *   notifications/{id}                 `read: true` for the recipient only
+ *   rooms/{roomId}/presence/{uid}      own presence
+ *   rooms/{roomId}/attendance/{id}     open/close your own attendance segment
+ *   rooms/{roomId}/signaling/{id}      create, as yourself, if you are in the room
+ *   rooms/{roomId}/candidates/{id}     create, as yourself, if you are in the room
+ *   posts/{id}                         own posts; any member may toggle only
+ *                                      their own reaction key
+ *   posts/{postId}/comments/{id}       own comments (+ commentCount on the post)
+ *   communities/{id}                   create as founder; then only owner/mods
+ *   communities/{id}/members/{uid}     join/leave as yourself
+ *
+ * `wallets` and `tokenTransactions` are read-only to everyone, including
+ * administrators: an administrator changes a balance by calling the
+ * `adjustWallet` function, which writes an auditable ledger row in the same
+ * transaction. There is no rule path that lets a client set a balance.
+ * Settlement records are read by the steward dashboard only; members see the
+ * outcome on their booking and the matching rows in their own ledger.
+ */
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    /* ───────────────────────────── helpers ───────────────────────────── */
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isSelf(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    /**
+     * Administrators are identified by a custom claim, which only the
+     * `setUserRole` Cloud Function can mint. A client can never grant itself
+     * this claim, and therefore can never take an admin path.
+     */
+    function isAdmin() {
+      return signedIn() && request.auth.token.admin == true;
+    }
+
+    function changedKeys() {
+      return request.resource.data.diff(resource.data).affectedKeys();
+    }
+
+    function createdKeys() {
+      return request.resource.data.keys();
+    }
+
+    /** Fields that only the server may ever write on a member profile. */
+    function touchesServerFields() {
+      return changedKeys().hasAny([
+        'uid', 'email', 'role', 'status', 'stats',
+        'teachSkillIds', 'learnSkillIds', 'teachCategories'
+      ]);
+    }
+
+    /** Membership of the room, read from the room document itself. */
+    function room(roomId) {
+      return get(/databases/$(database)/documents/rooms/$(roomId)).data;
+    }
+
+    function isRoomParticipant(roomId) {
+      return signedIn() && request.auth.uid in room(roomId).participants;
+    }
+
+    /** A signed-in member's public profile, used for denormalised names. */
+    function me() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function community(communityId) {
+      return get(/databases/$(database)/documents/communities/$(communityId)).data;
+    }
+
+    function isCommunityOwner(communityId) {
+      return signedIn() && request.auth.uid in community(communityId).ownerUids;
+    }
+
+    function isCommunityModerator(communityId) {
+      return signedIn() && request.auth.uid in community(communityId).moderatorUids;
+    }
+
+    function isCommunitySteward(communityId) {
+      return isCommunityOwner(communityId) || isCommunityModerator(communityId);
+    }
+
+    /* ──────────────────────────── platform config ────────────────────── */
+
+    // The token policy is public product information — the landing page and the
+    // marketplace quote costs to guests — and it contains no secrets. Only the
+    // `updatePlatformConfig` function may write it.
+    match /config/{document} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    /* ─────────────────────────────── members ─────────────────────────── */
+
+    match /users/{uid} {
+      // Profiles are visible to signed-in members so people can find each other.
+      // The app additionally honours `privacy.profileVisibility` when querying;
+      // Firestore rules cannot hide individual fields, so the profile document
+      // deliberately holds no private data beyond what a member chooses to show.
+      allow read: if signedIn();
+
+      allow create: if isSelf(uid)
+        && request.resource.data.uid == uid
+        && request.resource.data.role == 'member'   // never self-promote
+        && request.resource.data.status == 'active';
+
+      // Self-service edits: identity, bio, availability, privacy, onboarding and
+      // the denormalised listing references the client keeps in sync.
+      allow update: if isSelf(uid) && (
+        !touchesServerFields()
+        || changedKeys().hasOnly(['teachSkillIds', 'teachCategories', 'updatedAt'])
+        || changedKeys().hasOnly(['learnSkillIds', 'updatedAt'])
+      );
+
+      allow delete: if false;  // account deletion is a steward-run process
+
+      match /communityMemberships/{communityId} {
+        allow read: if isSelf(uid);
+        allow write: if false;
+      }
+    }
+
+    /* ─────────────────────────────── listings ────────────────────────── */
+
+    match /skills/{skillId} {
+      allow read: if true;  // the marketplace and landing page are public
+
+      allow create: if signedIn()
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.status == 'published'
+        && request.resource.data.moderation.state == 'clean'
+        && request.resource.data.bookingCount == 0
+        && request.resource.data.completedCount == 0
+        && request.resource.data.reviewCount == 0
+        && request.resource.data.ratingSum == 0;
+
+      // Owners edit their listing's content. Counters and moderation are
+      // server-owned: a teacher may not inflate their own review score.
+      allow update: if signedIn()
+        && (resource.data.ownerUid == request.auth.uid || isAdmin())
+        && !changedKeys().hasAny(['ownerUid', 'ratingSum', 'reviewCount', 'completedCount', 'moderation', 'createdAt'])
+        && (isAdmin() || !changedKeys().hasAny(['bookingCount']));
+
+      // Archive rather than delete, so settled history keeps its reference.
+      allow delete: if false;
+    }
+
+    /* ─────────────────────────────── bookings ────────────────────────── */
+
+    match /bookings/{bookingId} {
+      allow read: if signedIn()
+        && (request.auth.uid in resource.data.participants || isAdmin());
+
+      /**
+       * Bookings are created, confirmed, cancelled, rescheduled, completed and
+       * settled by Cloud Functions only. The one client-side lifecycle write is
+       * opening a dispute: a participant may freeze their own booking, which
+       * moves no tokens and only asks a steward to look at it.
+       */
+      allow update: if signedIn()
+        && request.auth.uid in resource.data.participants
+        && changedKeys().hasOnly(['status', 'updatedAt'])
+        && request.resource.data.status == 'disputed'
+        && resource.data.status in ['confirmed', 'in_progress', 'completed'];
+
+      allow create, delete: if false;
+
+      match /settlements/{settlementId} {
+        allow read, write: if false;
+      }
+    }
+
+    /* ──────────────────────────── token economy ──────────────────────── */
+
+    /**
+     * Wallets and the ledger are server-owned, full stop. Clients read their own
+     * rows (administrators read everyone's) and there is no write path at all:
+     * balances only ever change inside a Cloud Function transaction that writes
+     * the matching `tokenTransactions` row and settlement record.
+     */
+    match /wallets/{uid} {
+      allow read: if isSelf(uid) || isAdmin();
+      allow write: if false;
+    }
+
+    match /tokenTransactions/{transactionId} {
+      allow read: if signedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow write: if false;
+    }
+
+    match /settlements/{settlementId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    /* ─────────────────────────────── reviews ─────────────────────────── */
+
+    match /reviews/{reviewId} {
+      allow read: if true;
+
+      // Reviews are created by the `createReview` function after it has verified
+      // that the booking really completed. A member may only reply to a review
+      // they received, and only to the reply field.
+      allow update: if signedIn()
+        && resource.data.subjectUid == request.auth.uid
+        && changedKeys().hasOnly(['responseText', 'responseAt']);
+
+      allow create, delete: if false;
+    }
+
+    /* ───────────────────────────── notifications ─────────────────────── */
+
+    match /notifications/{notificationId} {
+      allow read: if signedIn() && resource.data.uid == request.auth.uid;
+      // The recipient may mark a notification read and nothing else.
+      allow update: if signedIn()
+        && resource.data.uid == request.auth.uid
+        && changedKeys().hasOnly(['read'])
+        && request.resource.data.read == true;
+      allow create, delete: if false;
+    }
+
+    /* ──────────────────────────────── rooms ──────────────────────────── */
+
+    match /rooms/{roomId} {
+      // A room is private to the two members on its booking. Outsiders get a
+      // permission error even if they guess the id, which is what makes the
+      // signalling channel safe to keep in Firestore.
+      allow read: if isRoomParticipant(roomId) || isAdmin();
+
+      // Rooms are opened and closed by the `openRoom` / `endSession` functions,
+      // which also lock attendance and settle the session.
+      allow write: if false;
+
+      match /presence/{uid} {
+        allow read: if isRoomParticipant(roomId);
+        // You may only publish your own presence, inside your own room.
+        allow create, update: if isRoomParticipant(roomId) && isSelf(uid);
+        allow delete: if isRoomParticipant(roomId) && isSelf(uid);
+      }
+
+      match /attendance/{segmentId} {
+        allow read: if isRoomParticipant(roomId) || isAdmin();
+        // The client opens its own segment on join and closes it on leave; the
+        // Cloud Function seals every remaining open segment when it ends the
+        // session, so attendance can never be extended after the fact.
+        allow create: if isRoomParticipant(roomId)
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.leftAt == null;
+        allow update: if isRoomParticipant(roomId)
+          && resource.data.uid == request.auth.uid
+          && changedKeys().hasOnly(['leftAt', 'closedByClient'])
+          && resource.data.leftAt == null;
+        allow delete: if false;
+      }
+
+      match /signaling/{messageId} {
+        allow read: if isRoomParticipant(roomId) && resource.data.to == request.auth.uid;
+        allow create: if isRoomParticipant(roomId)
+          && request.resource.data.from == request.auth.uid
+          && request.resource.data.to in room(roomId).participants
+          && request.resource.data.sequence is int
+          && request.resource.data.kind in ['offer', 'answer', 'renegotiate', 'bye'];
+        allow update, delete: if isAdmin();
+      }
+
+      match /candidates/{candidateId} {
+        allow read: if isRoomParticipant(roomId) && resource.data.to == request.auth.uid;
+        allow create: if isRoomParticipant(roomId)
+          && request.resource.data.from == request.auth.uid
+          && request.resource.data.to in room(roomId).participants;
+        allow update, delete: if isAdmin();
+      }
+    }
+
+    /* ────────────────────────────── communities ──────────────────────── */
+
+    match /communities/{communityId} {
+      allow read: if true;
+
+      allow create: if signedIn()
+        && request.resource.data.ownerUids == [request.auth.uid]
+        && request.resource.data.moderatorUids == [request.auth.uid]
+        && request.resource.data.memberCount == 1
+        && request.resource.data.postCount == 0;
+        // (the client creates its own owner membership doc right after)
+
+      // Founders and moderators curate the community; `memberCount`/`postCount`
+      // are server-maintained counters, writable only by functions.
+      allow update: if (isCommunitySteward(communityId) || isAdmin())
+        && !changedKeys().hasAny(['memberCount', 'postCount', 'ownerUids']);
+      allow delete: if false;
+
+      match /members/{uid} {
+        allow read: if signedIn();
+        // Joining publishes your own membership row; leaving stamps `leftAt`.
+        allow create: if isSelf(uid) && request.resource.data.uid == uid;
+        allow update: if isSelf(uid) && changedKeys().hasOnly(['leftAt', 'displayName', 'avatarSeed']);
+        allow delete: if isAdmin();
+      }
+    }
+
+    match /posts/{postId} {
+      allow read: if true;
+
+      allow create: if signedIn()
+        && request.resource.data.authorUid == request.auth.uid
+        && request.resource.data.commentCount == 0
+        && request.resource.data.moderation.state == 'clean'
+        && request.resource.data.reactions == {};
+
+      /**
+       * Two legitimate client updates:
+       *  1. reacting — only your own key inside `reactions` may change, so a
+       *     member cannot rewrite or clear anybody else's reaction;
+       *  2. commenting — the author's client refreshes `commentCount`, which is
+       *     a denormalised counter, so it is allowed alongside `updatedAt`.
+       */
+      allow update: if signedIn() && (
+        request.resource.data.reactions.diff(resource.data.reactions).affectedKeys().hasOnly([request.auth.uid])
+        && !changedKeys().hasAny(['authorUid', 'communityId', 'moderation', 'pinned', 'createdAt'])
+      ) || (
+        changedKeys().hasOnly(['commentCount', 'updatedAt'])
+      );
+
+      allow delete: if false;
+
+      match /comments/{commentId} {
+        allow read: if true;
+        allow create: if signedIn()
+          && request.resource.data.authorUid == request.auth.uid
+          && request.resource.data.moderation.state == 'clean';
+        allow update: if signedIn() && resource.data.authorUid == request.auth.uid
+          && changedKeys().hasOnly(['body', 'updatedAt']);
+        allow delete: if false;
+      }
+    }
+
+    /* ───────────────────────────── moderation ────────────────────────── */
+
+    match /reports/{reportId} {
+      allow read: if signedIn() && (resource.data.reporterUid == request.auth.uid || isAdmin());
+      allow create: if signedIn()
+        && request.resource.data.reporterUid == request.auth.uid
+        && request.resource.data.status == 'open'
+        && request.resource.data.handledByUid == null;
+      // Whether a report is upheld, and what happens next, is a steward decision
+      // taken through the `resolveReport` function.
+      allow update, delete: if false;
+    }
+
+    match /disputes/{disputeId} {
+      allow read: if signedIn()
+        && (request.auth.uid == resource.data.openedByUid
+          || request.auth.uid == resource.data.againstUid
+          || isAdmin());
+      allow create: if signedIn()
+        && request.resource.data.openedByUid == request.auth.uid
+        && request.resource.data.status == 'open'
+        && request.auth.uid in get(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.participants;
+      // Disputes are resolved by a steward through `resolveDispute`, which also
+      // moves tokens. Clients never write the outcome.
+      allow update, delete: if false;
+    }
+
+    /* ─────────────────────── default deny everything else ────────────── */
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

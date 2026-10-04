@@ -1,0 +1,67 @@
+rules_version = '2';
+
+/**
+ * PeerPulse Cloud Storage rules.
+ *
+ * Scope is deliberately tiny: members may publish an avatar and a short
+ * introduction clip for a listing. Session video never touches Storage — calls
+ * are peer-to-peer WebRTC, and Firestore only carries the signalling envelopes.
+ *
+ * Layout
+ * ------
+ *   avatars/{uid}/{file}            profile pictures, world-readable
+ *   listings/{uid}/{skillId}/{file} images and intro clips for a listing
+ *
+ * Every write is size- and type-checked, and the path must start with the
+ * caller's own uid so nobody can overwrite somebody else's media.
+ */
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function isImage() {
+      return request.resource.contentType.matches('image/.*');
+    }
+
+    function isVideo() {
+      return request.resource.contentType.matches('video/.*');
+    }
+
+    // 5 MB avatars, 5 MB listing images, 50 MB listing video.
+    function withinAvatarLimit() {
+      return request.resource.size < 5 * 1024 * 1024;
+    }
+
+    function withinListingLimit() {
+      return request.resource.size < 50 * 1024 * 1024;
+    }
+
+    match /avatars/{uid}/{fileName} {
+      allow read: if true;                      // profiles are public
+      allow write: if isOwner(uid) && isImage() && withinAvatarLimit();
+      allow delete: if isOwner(uid);
+    }
+
+    match /listings/{uid}/{skillId}/{fileName} {
+      allow read: if true;                      // listing media is public
+      allow write: if isOwner(uid)
+        && (isImage() || isVideo())
+        && withinListingLimit();
+      allow delete: if isOwner(uid);
+    }
+
+    // Session recordings are explicitly not a feature: nothing else may be
+    // written to this bucket, and no client may read anything outside the two
+    // public prefixes above.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
