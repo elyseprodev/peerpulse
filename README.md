@@ -44,7 +44,7 @@ database through `localStorage`.
 | `npm run dev` | Vite dev server on `0.0.0.0:5173` (local backend) |
 | `npm run build` | Typecheck (`vue-tsc`) then build to `dist/` |
 | `npm run typecheck` | Strict TypeScript check of app, shared and tests |
-| `npm test` | Vitest unit + integration suite (171 tests) |
+| `npm test` | Vitest unit + integration suite (193 tests) |
 | `cd functions && npm test` | Cloud Functions, executed against a real Admin SDK (43 tests) |
 | `npm run test:rules` | Firestore emulator security-rules suite (**needs a JDK**) |
 | `npm run sync:shared` | Mirror `shared/*` into `functions/src/shared/` |
@@ -120,7 +120,7 @@ Honesty is a feature of this repository, so it is stated on the front page:
 
 **Verified in this repository**
 
-- 171 unit/integration tests pass (`npm test`): the token maths and its boundaries, booking conflicts and
+- 193 unit/integration tests pass (`npm test`): the token maths and its boundaries, booking conflicts and
   lifecycle, attendance verification and every settlement outcome, the whole reference backend, the
   accessibility-relevant behaviour of the UI primitives, a route smoke test that mounts the real app and walks
   every route in the table (guards included) asserting that each one renders without a render error, and an
@@ -129,7 +129,10 @@ Honesty is a feature of this repository, so it is stated on the front page:
   seed-integrity audit that re-derives every counter, score and balance in the demo world from the data behind
   it (that audit found two demo-data defects; the seed now derives its counters through the same shared helpers
   the engines use), a WebRTC negotiation suite that exercises offerer election, glare, the ICE queue and
-  teardown with a fake peer connection, and an accessibility audit that walks every route checking the
+  teardown with a fake peer connection, a security-rules lint that parses `firestore.rules` and fails if a
+  client write appears on a token-bearing collection, on an undocumented path, or anywhere an administrator
+  was not allowed to write one either (verified by mutation — four deliberately loosened rules, four red
+  suites), and an accessibility audit that walks every route checking the
   machine-checkable parts of WCAG 2.1 AA. The audit found the most serious defect of the project so far:
   `AppButton` passed `href: undefined` alongside `to`, which silently removed the href `RouterLink` computes, so
   all 39 link-buttons ("Sign in", "Book a session", …) rendered anchors **no keyboard could reach**. Mouse
@@ -152,7 +155,8 @@ Honesty is a feature of this repository, so it is stated on the front page:
 **Not verified here (do not claim otherwise)**
 
 - `tests/rules/firestore.rules.spec.ts` — written and reviewed line by line against `firestore.rules`, but
-  **never executed**. Java is available in the build environment (Temurin 25), and the CLI gets as far as
+  **never executed**. `tests/unit/rulesContracts.spec.ts` lints the same promises on every run, but a lint is
+  not enforcement: only the emulator can prove Firestore refuses what the docs say it refuses. Java is available in the build environment (Temurin 25), and the CLI gets as far as
   downloading the emulator, but the sandbox's network allow-list blocks the artifact itself
   (`storage.googleapis.com`, and every alternative route was checked). On a normal machine
   `npm run test:rules` will fetch `cloud-firestore-emulator-v1.19.8.jar` and run these tests unchanged.

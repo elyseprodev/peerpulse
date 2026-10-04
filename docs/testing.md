@@ -12,7 +12,7 @@ npm ci                      # install (root)
 cd functions && npm install # install the functions project, then `cd ..`
 
 npm run typecheck           # vue-tsc, strict, app + shared + tests
-npm test                    # vitest, jsdom, tests/unit/**  → 171 tests
+npm test                    # vitest, jsdom, tests/unit/**  → 193 tests
 npm run build               # production build to dist/
 npm run dev                 # local mode at http://localhost:5173 (binds 0.0.0.0)
 
@@ -31,7 +31,7 @@ npm run deploy:hosting      # builds the app, deploys
 
 ---
 
-## 2. Unit suites (171 tests, all passing locally)
+## 2. Unit suites (193 tests, all passing locally)
 
 | Suite | Tests | Proves |
 | --- | --- | --- |
@@ -39,11 +39,12 @@ npm run deploy:hosting      # builds the app, deploys
 | `tests/unit/booking.spec.ts` | 18 | Window overlap (touching windows do **not** conflict); conflict detection against a member's calendar including buffers; the status transition table (a settled booking is terminal); `canJoinRoom` (participants only, opens 15 min before, closed after the room closes); lifecycle helpers. |
 | `tests/unit/settlement.spec.ts` | 27 | `verifyAttendance` from the **overlap** of both presence segments clamped to the booked window, including one-sided and partial presence; the quorum rule `min(minVerifiedMinutes, max(1, ceil(booked/2)))`; `planSettlement` outcomes — `settle`, `partial` (debit floored to the increment), `refund`, `blocked` with each reason in `SETTLEMENT_BLOCKED_REASONS`; double confirmation overriding a missed quorum while auto-completion alone does not; ledger construction: deterministic ids, balanced debit/credit amounts, `balanceAfter`, `policyCode`. |
 | `tests/unit/localBackend.spec.ts` | 28 | The whole reference backend as an integration surface: sign-up provisions profile + wallet + grant + notification; sign-in/sign-out and session persistence; booking request → confirm → room creation; a pending booking moves no tokens; running a session writes attendance and settles exactly once; a replayed settlement is a no-op; signalling is scoped so a non-participant cannot read or post; governance actions (role changes, wallet adjustments with a reason, dispute resolution refunding from the ledger). |
-| `tests/unit/components.spec.ts` | 17 | Primitive behaviour that accessibility depends on: button loading/disabled semantics, icon labelling, input label/error wiring, select options, modal focus trap + `Escape` + focus restoration, empty-state actions, badge/stat rendering. |
+| `tests/unit/components.spec.ts` | 21 | Primitive behaviour that accessibility depends on: button loading/disabled semantics, icon labelling, input label/error wiring, select options, modal focus trap + `Escape` + focus restoration, empty-state actions, badge/stat rendering. |
 | `tests/unit/routes.spec.ts` | 7 | The application as a whole: mounts the real router, stores and reference backend, then walks all eleven public routes and seven member routes, asserts the 404 page, asserts that eight protected routes redirect a guest to `/signin` with the intended path remembered, that a member is bounced from `/admin` to the dashboard, that signing out closes the member surface again, and that the steward dashboard renders. A render-time error on any page fails the test, so a broken page cannot pass silently. |
 | `tests/unit/indexes.spec.ts` | 15 | `firestore.indexes.json` covers every composite-index-shaped Firestore query the app issues, and declares nothing unexplained — the only place a missing index can be caught without a deployed project. Written after it found three missing indexes, one of which the hourly auto-settlement sweep needs. |
 | `tests/unit/webrtc.spec.ts` | 15 | The negotiation state machine of live sessions, with a fake `RTCPeerConnection` and a recording signalling backend: the lower uid offers and the other side waits; a non-offerer asks to renegotiate instead of offering; an offer is answered and the remote description set; ICE candidates that arrive before the remote description are held and then released in order; an offer that crosses the designated offerer's own is ignored, while the non-offerer rolls back and answers; a `bye` marks the peer left and closes the transport; `stop()` announces departure and clears presence; a blocked camera explains itself *and survives the connection moving on*; the camera/microphone toggles travel through presence; screen sharing replaces the outgoing video track and restores the camera; and a room whose `canPublish` is false refuses to negotiate at all. |
 | `tests/unit/a11y.spec.ts` | 6 | The rendered DOM of every page against the machine-checkable parts of WCAG 2.1 AA: one `h1` per document and no skipped heading levels, every button/link/control with an accessible name, every input labelled, no duplicate ids, no positive `tabindex`, no bare `<a>`, valid `aria-live` values, and a tab-order sanity check. It found four defects — unfocusable link-buttons, `aria-label` landing on wrappers, four pages with no `h1`, and 275 unnamed decorative buttons — all listed in `docs/design-system.md` §5.1. It cannot check contrast, motion, or how any of it sounds in a real screen reader. |
+| `tests/unit/rulesContracts.spec.ts` | 22 | A **static lint of `firestore.rules`**, not enforcement: it parses the rules file and asserts that the collections which must never take a client write (`wallets`, `tokenTransactions`, `settlements`, `config`, `rooms`, private subcollections) still grant none; that the set of paths granting *any* client write equals the table in `docs/security.md` §3 **in both directions**, so an undocumented write path fails and a documented feature whose rule vanished also fails; that the administrator surface is exactly five documented writes and includes no token-bearing collection; and that the specific clauses the docs promise — signalling addressed to its reader and authored by its sender, an attendance segment closable but never reopenable, a booking writable only into `disputed`, a review reply limited to the reply fields — are still shaped that way. Verified by mutation: granting `wallets` a write, adding an undocumented `badges` collection, removing the attendance close guard and removing the signalling recipient check each fail it. It cannot tell you that a rule *works* — that is the emulator suite, which has never run here (§4). |
 | `tests/unit/seedIntegrity.spec.ts` | 12 | The demo world obeys the product's own rules: no dangling references, every wallet equal to its own ledger, tokens conserved across settlements, every settlement record tied to its booking and its two ledger rows, every listing score and member statistic re-derived from the reviews and sessions behind it. It found two demo-data defects on its first run, after which the seed stopped incrementing counters by hand and derives them from the facts through the same shared helpers the settlement engine uses. |
 
 Run them with `npm test` (watch: `npm run test:watch`). The suite is deterministic and offline — it never
@@ -114,9 +115,12 @@ npm run test:rules
 > evidence. Treat the first executed run as a real milestone: fixtures and rules are both plausible places for
 > a first red test.
 
-Static verification that was done instead: read `firestore.rules` against `src/lib/backend/firebase/index.ts`
-and `local/sessions.ts` to confirm that every write the client actually performs is permitted, and that nothing
-permitted is a token movement. That review found and fixed three mismatches (the review reply field, the
+Static verification that was done instead, in two passes. The first read `firestore.rules` against
+`src/lib/backend/firebase/index.ts`
+and `local/sessions.ts` tracking down every write the client actually performs; the second is the executable
+lint in `tests/unit/rulesContracts.spec.ts` (§2), which re-checks the same claims on every run and fails if a
+rule is loosened, a path is added, or the documented surface and the rules drift apart. Neither substitutes for
+the emulator: they prove the rules still *say* the right thing, not that Firestore *enforces* it. That review found and fixed three mismatches (the review reply field, the
 settlement read rule, and guest access to the policy) — recorded in the commit that introduced
 `docs/security.md`.
 
