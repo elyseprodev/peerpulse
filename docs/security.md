@@ -194,15 +194,19 @@ outsider, administrator and guest — and asserts, among others:
 - a closed attendance segment cannot be reopened;
 - profiles cannot self-promote or change `stats`; listings cannot inflate counters; reviews cannot be created
   and only the subject may reply;
-- notifications expose only the `read` flag to the recipient;
+- notifications expose only the `read` flag to the recipient — every notification is written with admin
+  credentials, by a callable's transaction or by one of the two triggers (`onCommentCreated`, `sessionReminders`),
+  so a member cannot forge one, address one to somebody else, or mark another member's as read;
 - reports and disputes can only be filed as yourself and never pre-resolved;
 - unmatched paths are denied by default.
 
 Independent of the rules, the **server-side authorization checks inside the callables** are now exercised
-for real: `functions/tests` runs the actual functions against a real `firebase-admin` SDK (43 tests) and
+for real: `functions/tests` runs the actual functions against a real `firebase-admin` SDK (79 tests) and
 asserts that an unauthenticated caller, a suspended member, an outsider, a non-participant and a member without
 the admin claim are each refused; that a wallet cannot be adjusted without a written reason; and that the
-policy rejects invalid values. That suite runs with `cd functions && npm test`.
+policy rejects invalid values. It also covers the notification surface: the composer decides the recipient
+server-side from the booking's participants, and the two triggers read the database with admin credentials
+rather than trusting anything the client sent. That suite runs with `cd functions && npm test`.
 
 Run the rules tests with:
 

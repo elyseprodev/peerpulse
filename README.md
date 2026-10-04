@@ -44,8 +44,8 @@ database through `localStorage`.
 | `npm run dev` | Vite dev server on `0.0.0.0:5173` (local backend) |
 | `npm run build` | Typecheck (`vue-tsc`) then build to `dist/` |
 | `npm run typecheck` | Strict TypeScript check of app, shared and tests |
-| `npm test` | Vitest unit + integration suite (269 tests) |
-| `cd functions && npm test` | Cloud Functions, executed against a real Admin SDK (43 tests) |
+| `npm test` | Vitest unit + integration suite (287 tests) |
+| `cd functions && npm test` | Cloud Functions, executed against a real Admin SDK (79 tests) |
 | `npm run test:rules` | Firestore emulator security-rules suite (**needs a JDK**) |
 | `npm run sync:shared` | Mirror `shared/*` into `functions/src/shared/` |
 | `npm run check:shared` | Fail if those copies have drifted |
@@ -102,8 +102,8 @@ Firestore ◀── rules: no client can move a token ──┘
 | Document | Contents |
 | --- | --- |
 | [`docs/requirements.md`](docs/requirements.md) | Roles, 34 functional requirements, the business rules and their enforcement, 8 user journeys |
-| [`docs/requirements-coverage.md`](docs/requirements-coverage.md) | Every requirement mapped to the code that implements it, the test that proves it, and what is *not* proven — 19 verified, 14 partial, 1 not implemented (Web Push), machine-checked against the repository |
-| [`docs/architecture.md`](docs/architecture.md) | Layers and trust boundaries, sequence diagrams for settlement and calls, deployment topology |
+| [`docs/requirements-coverage.md`](docs/requirements-coverage.md) | Every requirement mapped to the code that implements it, the test that proves it, and what is *not* proven — 20 verified, 13 partial, 1 not implemented (Web Push), machine-checked against the repository |
+| [`docs/architecture.md`](docs/architecture.md) | Layers and trust boundaries, sequence diagrams for settlement, calls and notifications, deployment topology |
 | [`docs/firestore-data-model.md`](docs/firestore-data-model.md) | Every collection with a sample record, access matrix, indexes, TTL, invariants |
 | [`docs/webrtc-signaling.md`](docs/webrtc-signaling.md) | Firestore signalling, glare handling, ICE/TURN, presence and attendance, failure table, two-tab test script |
 | [`docs/security.md`](docs/security.md) | Rules posture, the client write surface, server-side authorization, admin limits, threat model |
@@ -121,7 +121,7 @@ Honesty is a feature of this repository, so it is stated on the front page:
 
 **Verified in this repository**
 
-- 269 unit/integration tests pass (`npm test`): the token maths and its boundaries, booking conflicts and
+- 287 unit/integration tests pass (`npm test`): the token maths and its boundaries, booking conflicts and
   lifecycle, attendance verification and every settlement outcome, the whole reference backend, the
   accessibility-relevant behaviour of the UI primitives, a route smoke test that mounts the real app and walks
   every route in the table (guards included) asserting that each one renders without a render error, and an

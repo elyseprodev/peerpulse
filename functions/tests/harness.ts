@@ -306,6 +306,26 @@ export async function invokeAuthTrigger(
   )
 }
 
+/**
+ * Runs the comment-reply body the trigger wraps, against the real database.
+ * (The wrapped Cloud Functions event plumbing is Firebase's; this is ours.)
+ */
+export async function notifyingComment(input: {
+  communityId: string
+  postId: string
+  authorUid: string
+  body: string
+}): Promise<boolean> {
+  const { notifyPostAuthorOfComment } = await import('../src/triggers')
+  return notifyPostAuthorOfComment(input)
+}
+
+/** Runs the reminder sweep body, optionally against a fixed clock. */
+export async function runReminderSweep(now?: Date): Promise<number> {
+  const { sendSessionReminders } = await import('../src/triggers')
+  return sendSessionReminders(now)
+}
+
 /** Runs the scheduled settlement sweep body directly. */
 export async function runSettlementSweep(): Promise<{ settled: string[]; skipped: string[] }> {
   const { autoSettleFinishedSessions } = await import('../src/lib/settlement')

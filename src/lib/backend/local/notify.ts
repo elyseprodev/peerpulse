@@ -1,5 +1,6 @@
-import type { AppNotification, NotificationType } from '@shared/domain'
 import { persist, uid, type LocalDatabase } from './db'
+import type { AppNotification, NotificationType } from '@shared/domain'
+import type { NotificationDraft } from '@shared/notify'
 
 export interface NotificationInput {
   uid: string
@@ -31,4 +32,22 @@ export function pushNotification(db: LocalDatabase, input: NotificationInput): A
   db.notifications[id] = notification
   persist(`notifications|${input.uid}`)
   return notification
+}
+
+/**
+ * The wording, recipient and type of every message are decided by
+ * `shared/notify.ts`, which the Cloud Functions use too. Local mode used to have
+ * its own copy of that logic and the two drifted: production once told the
+ * *cancelling* member that they had cancelled, and typed steward messages as
+ * `community_reply`. Composing in one module is what stops that happening again.
+ */
+export function pushDraft(db: LocalDatabase, draft: NotificationDraft): AppNotification {
+  return pushNotification(db, {
+    uid: draft.uid,
+    type: draft.type,
+    title: draft.title,
+    body: draft.body,
+    link: draft.link,
+    priority: draft.priority,
+  })
 }

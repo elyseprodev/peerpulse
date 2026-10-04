@@ -27,7 +27,7 @@ import { onCall, type CallableRequest } from 'firebase-functions/v2/https'
 import { onSchedule } from 'firebase-functions/v2/scheduler'
 import { DEFAULT_PLATFORM_CONFIG, signupGrantAmount, type PlatformConfig, type Wallet } from './shared'
 import { fromSnapshot, toFirestore } from './lib/convert'
-import { notifyNow } from './lib/notify'
+import { COMPOSERS, notifyNow } from './lib/notify'
 import { COLLECTIONS, db, nowIso, requireAdmin } from './lib/refs'
 import { autoSettleFinishedSessions } from './lib/settlement'
 
@@ -145,13 +145,8 @@ export const bootstrapPlatform = onCall(async (request: CallableRequest<Record<s
     }
     await walletReference.set(toFirestore(wallet) as object)
     created += 1
-    await notifyNow({
-      uid: document.id,
-      type: 'token_grant',
-      title: `${grant} welcome Time Tokens added`,
-      body: 'Trade an hour of what you know for an hour of what you want to learn.',
-      link: '/wallet',
-    })
+    // The same welcome the auth trigger sends, through the same composer.
+    await notifyNow(COMPOSERS.tokenGrant(document.id, grant, 'Welcome grant — new members may receive introductory Time Tokens.', { signup: true }))
   }
 
   return { policySeeded: !existing, walletsCreated: created, ranBy: uid }

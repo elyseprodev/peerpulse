@@ -39,8 +39,19 @@ import {
   type SettlementRecord,
   type UserProfile,
 } from '@shared/domain'
+import {
+  bookingCancelledDraft,
+  bookingConfirmedDraft,
+  bookingDeclinedDraft,
+  bookingRequestedDraft,
+  bookingRescheduledDraft,
+  disputeRaisedDraft,
+  pendingCompletionDraft,
+  reviewReceivedDraft,
+  sessionSettledDraft,
+} from '@shared/notify'
 import { persist, sortBy, uid, type LocalDatabase } from './db'
-import { pushNotification } from './notify'
+import { pushDraft } from './notify'
 import type { CreateBookingInput, CreateReviewInput, SettlementOutcomeResult } from '../types'
 import { BackendRequestError } from '../types'
 
@@ -202,22 +213,9 @@ export function createBooking(db: LocalDatabase, input: CreateBookingInput, acto
 
   if (autoConfirm) {
     createRoomForBooking(db, booking, teacher)
-    pushNotification(db, {
-      uid: skill.ownerUid,
-      type: 'booking_confirmed',
-      title: `${learner.displayName} booked ${skill.title}`,
-      body: `Confirmed automatically for ${new Date(booking.startAt).toLocaleString()}.`,
-      link: '/bookings',
-    })
+    pushDraft(db, bookingConfirmedDraft(booking, teacher.displayName))
   } else {
-    pushNotification(db, {
-      uid: skill.ownerUid,
-      type: 'booking_requested',
-      title: `New session request from ${learner.displayName}`,
-      body: `${skill.title} · ${new Date(booking.startAt).toLocaleString()}. Respond when you can.`,
-      link: '/bookings',
-      priority: 'high',
-    })
+    pushDraft(db, bookingRequestedDraft(booking, teacher.displayName, learner.displayName))
   }
 
   persist('db', 'bookings|' + actorUid, 'bookings|' + skill.ownerUid, 'skills')
@@ -294,13 +292,7 @@ export function confirmBooking(db: LocalDatabase, id: string, actorUid: string):
   createRoomForBooking(db, booking, teacher)
 
   const learner = requireUser(db, booking.learnerUid)
-  pushNotification(db, {
-    uid: learner.uid,
-    type: 'booking_confirmed',
-    title: `${teacher.displayName} confirmed your session`,
-    body: `${booking.skillTitle} · ${new Date(booking.startAt).toLocaleString()}. The room opens 15 minutes before.`,
-    link: '/bookings',
-  })
+  pushDraft(db, bookingConfirmedDraft(booking, teacher.displayName))
 
   persist('db', `bookings|${learner.uid}`, `bookings|${teacher.uid}`, `wallet|${learner.uid}`)
   return booking
@@ -315,13 +307,7 @@ export function declineBooking(db: LocalDatabase, id: string, reason: string, ac
   booking.revision += 1
   booking.updatedAt = new Date().toISOString()
   const teacher = requireUser(db, booking.teacherUid)
-  pushNotification(db, {
-    uid: booking.learnerUid,
-    type: 'booking_declined',
-    title: `${teacher.displayName} could not take that slot`,
-    body: reason ? `Reason: ${reason}` : `${booking.skillTitle} was declined. Try another time or another teacher.`,
-    link: '/skills',
-  })
+  pushDraft(db, bookingDeclinedDraft(booking, teacher.displayName, reason))
   persist('db', `bookings|${booking.learnerUid}`, `bookings|${actorUid}`)
   return booking
 }
@@ -370,6 +356,7 @@ export function cancelBooking(db: LocalDatabase, id: string, reason: string, act
     }
     db.wallets[booking.learnerUid] = refund.nextLearner
     booking.settlement.refundTxId = refund.entries[0]?.id ?? null
+    booking.settlement.state = 'refunded'
   }
 
   booking.status = 'cancelled'
@@ -380,7 +367,9 @@ export function cancelBooking(db: LocalDatabase, id: string, reason: string, act
     refundTokens: outcome.refundTokens,
     policyCode: outcome.policyCode,
   }
-  booking.settlement.state = 'refunded'
+  // `state` is only set to `refunded` by the branch above, when a refund row was
+  // actually written — a cancellation of a session that was never charged is not
+  // a refund, and production leaves the settlement untouched in that case.
   booking.settlement.note = outcome.explanation
   booking.revision += 1
   booking.updatedAt = now
@@ -390,16 +379,18 @@ export function cancelBooking(db: LocalDatabase, id: string, reason: string, act
     db.rooms[booking.roomId].closedAt = now
   }
 
-  const counterpartyUid = actorUid === booking.teacherUid ? booking.learnerUid : booking.teacherUid
   const actor = requireUser(db, actorUid)
-  pushNotification(db, {
-    uid: counterpartyUid,
-    type: 'booking_cancelled',
-    title: `${actor.displayName} cancelled ${booking.skillTitle}`,
-    body: `${outcome.explanation}${reason ? ` Reason given: ${reason}` : ''}`,
-    link: '/bookings',
-    priority: 'high',
-  })
+  pushDraft(
+    db,
+    bookingCancelledDraft(
+      booking,
+      actorUid,
+      actor.displayName,
+      outcome.refundTokens ?? 0,
+      outcome.policyCode ?? 'policy',
+      `${outcome.explanation}${reason ? ` Reason given: ${reason}` : ''}`,
+    ),
+  )
 
   persist('db', `bookings|${booking.learnerUid}`, `bookings|${booking.teacherUid}`, `wallet|${booking.learnerUid}`)
   return booking
@@ -462,16 +453,8 @@ export function rescheduleBooking(
   booking.revision += 1
   booking.updatedAt = new Date().toISOString()
 
-  const counterpartyUid = actorUid === booking.teacherUid ? booking.learnerUid : booking.teacherUid
   const actor = requireUser(db, actorUid)
-  pushNotification(db, {
-    uid: counterpartyUid,
-    type: 'booking_rescheduled',
-    title: `${actor.displayName} proposed a new time`,
-    body: `${booking.skillTitle} · ${new Date(booking.startAt).toLocaleString()}. Confirm when it works for you.`,
-    link: '/bookings',
-    priority: 'high',
-  })
+  pushDraft(db, bookingRescheduledDraft(booking, actorUid, actor.displayName))
 
   persist('db', `bookings|${booking.learnerUid}`, `bookings|${booking.teacherUid}`)
   return booking
@@ -719,20 +702,8 @@ export function settleBooking(
   teacher.stats = statsAfterSettlement(teacher.stats, 'teacher', booking.durationMinutes, plan)
   learner.stats = statsAfterSettlement(learner.stats, 'learner', booking.durationMinutes, plan)
 
-  pushNotification(db, {
-    uid: booking.teacherUid,
-    type: 'session_settled',
-    title: `+${plan.creditAmount} Time Token${plan.creditAmount === 1 ? '' : 's'} earned`,
-    body: `${booking.skillTitle} · ${plan.verifiedMinutes} min verified. Your balance is now ${write.nextTeacher.balance}.`,
-    link: '/wallet',
-  })
-  pushNotification(db, {
-    uid: booking.learnerUid,
-    type: 'session_settled',
-    title: `−${plan.debitAmount} Time Token${plan.debitAmount === 1 ? '' : 's'} spent`,
-    body: `${booking.skillTitle} · ${plan.verifiedMinutes} min verified. Your balance is now ${write.nextLearner.balance}.`,
-    link: '/wallet',
-  })
+  pushDraft(db, sessionSettledDraft(booking, plan.creditAmount, 'teacher', write.nextTeacher.balance))
+  pushDraft(db, sessionSettledDraft(booking, plan.debitAmount, 'learner', write.nextLearner.balance))
 
   if (booking.roomId && db.rooms[booking.roomId]) {
     const room = db.rooms[booking.roomId]
@@ -783,15 +754,7 @@ export function confirmCompletion(
     return settleBooking(db, bookingId, `user:${actorUid}`)
   }
 
-  const counterpartyUid = actorUid === booking.teacherUid ? booking.learnerUid : booking.teacherUid
-  const actor = requireUser(db, actorUid)
-  pushNotification(db, {
-    uid: counterpartyUid,
-    type: 'session_settled',
-    title: `${actor.displayName} marked the session complete`,
-    body: `${booking.skillTitle} will settle as soon as you confirm, or automatically when the window closes.`,
-    link: '/bookings',
-  })
+  pushDraft(db, pendingCompletionDraft(booking))
   return {
     booking,
     settlement: null,
@@ -850,14 +813,7 @@ export function raiseDispute(db: LocalDatabase, bookingId: string, claim: string
   booking.revision += 1
   booking.updatedAt = now
 
-  pushNotification(db, {
-    uid: dispute.againstUid,
-    type: 'session_disputed',
-    title: 'A session was disputed',
-    body: `${booking.skillTitle}. A steward will review both sides and respond within 3 days.`,
-    link: '/bookings',
-    priority: 'high',
-  })
+  pushDraft(db, disputeRaisedDraft(dispute, requireUser(db, actorUid).displayName))
   persist('db', 'disputes', `bookings|${booking.teacherUid}`, `bookings|${booking.learnerUid}`)
   return dispute
 }
@@ -907,13 +863,16 @@ export function createReview(db: LocalDatabase, input: CreateReviewInput): Revie
   }
 
   const author = requireUser(db, input.authorUid)
-  pushNotification(db, {
-    uid: subjectUid,
-    type: 'review_received',
-    title: `${author.displayName} left you a ${review.rating}-star review`,
-    body: review.comment.slice(0, 140),
-    link: `/members/${subjectUid}`,
-  })
+  pushDraft(
+    db,
+    reviewReceivedDraft({
+      subjectUid,
+      authorName: author.displayName,
+      rating: review.rating,
+      comment: review.comment,
+      skillTitle: booking?.skillTitle ?? 'your session',
+    }),
+  )
 
   persist('db', 'reviews', `users|${subjectUid}`, 'skills', `notifications|${subjectUid}`)
   return review

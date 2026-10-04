@@ -209,7 +209,54 @@ graph LR
 
 ---
 
-## 7. Data-flow invariants (checked in review and tests)
+## 7. Flow: notifications
+
+Notifications are the part of the product where *who* matters as much as *what*:
+a member reads "Sam cancelled your session" in a bell menu with no context around
+it, so a message addressed to the wrong person is not a display bug, it is the
+platform telling somebody the wrong thing about their own session.
+
+```mermaid
+graph TD
+  A["An event happens<br/>(the eleven FR-33 events)"] --> B["shared/notify.ts<br/>one composer per event<br/>→ {uid, type, title, body, link, priority}"]
+  B --> C["functions/src/lib/notify.ts<br/>wraps each draft in a Firestore payload"]
+  B --> D["src/lib/backend/local/notify.ts<br/>pushDraft writes the same shape"]
+  C --> E[("notifications/{id}<br/>firestore.rules: no client writes")]
+  D --> F[("localStorage db.notifications")]
+  E --> G["src/stores/notifications.ts<br/>watch → bell menu + /notifications"]
+  F --> G
+  H["onCommentCreated<br/>communities/{c}/posts/{p}/comments/{id}"] --> C
+  I["sessionReminders<br/>every 10 min"] --> C
+```
+
+Decisions this shape encodes:
+
+- **Composition happens once, in `shared/`.** The Cloud Functions and the local
+  backend both call the same builders, and a static test in
+  `functions/tests/notifications.spec.ts` fails if either side starts writing a
+  notification object by hand. This is not tidiness: the two implementations had
+  already diverged in ways only a member would notice — production told the
+  member who cancelled, typed steward messages as `community_reply`, and never
+  sent the `booking_reminder` the domain union declared.
+- **The recipient is derived from the participants, never from state.** A
+  cancellation is addressed to the member who did not cancel; a refund is
+  addressed to the member who paid; a review to the member it is about.
+- **The type describes what happened to the reader.** `session_refunded` only
+  when a refund row was written, which is the only version of "your tokens came
+  back" that is true — the default policy holds nothing on confirm, so cancelling
+  such a session says "nothing was charged" instead. An icon, a filter or a
+  grouping that trusts the type therefore cannot lie either.
+- **Two triggers, both server-side.** The comment trigger exists because posts
+  and comments are written straight from the client (the rules police them), and
+  the reminder sweep exists because a session that nobody remembers is the most
+  likely way for this product to fail its own premise. The reminder's document id
+  is its idempotency key, so a retry or a redeploy cannot send twice.
+- **Nothing new is exposed to the browser.** Both triggers read and write with
+  admin credentials; `notifications` remains a collection no client may write.
+
+---
+
+## 8. Data-flow invariants (checked in review and tests)
 
 1. **Token conservation** — for any settlement, `sum(debits) == sum(credits)`; the platform never mints.
 2. **Idempotency** — ledger ids are derived from the booking id, so a retried settlement overwrites nothing.
@@ -227,7 +274,7 @@ graph LR
 
 ---
 
-## 8. Why this shape
+## 9. Why this shape
 
 - **The adapter pattern** lets the product be demonstrated and unit-tested without a cloud project while the
   production path stays Firebase-native. Both implementations satisfy the same TypeScript interface, so a

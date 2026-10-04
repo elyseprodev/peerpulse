@@ -261,6 +261,15 @@
       ]
     },
     {
+      "//": "The ten-minute reminder sweep: confirmed sessions starting inside the next hour. An equality filter combined with a range on a different field needs a composite index; without it the sweep throws and nobody is ever reminded of a session they are about to teach or attend.",
+      "collectionGroup": "bookings",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "startAt", "order": "ASCENDING" }
+      ]
+    },
+    {
       "//": "The hourly auto-settlement sweep: in_progress bookings whose endAt is behind the cutoff. An equality filter combined with a range on a different field also needs a composite index; this is the automatic-payment path, so a missing index would silently stop every session from settling rather than fail loudly at request time.",
       "collectionGroup": "bookings",
       "queryScope": "COLLECTION",

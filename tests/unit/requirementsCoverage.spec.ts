@@ -20,7 +20,7 @@
  * What it cannot check: whether a test is *good*, or whether the code in the
  * "implemented in" column really does what the row says. Those need a reader.
  */
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
@@ -205,24 +205,18 @@ describe('requirements coverage: the evidence exists', () => {
     // inside a test run (which vitest cannot do). `it(`/`it.each(`/`test(` are all
     // forms used in this repository; each `it(` is one test per title.
     let declared = 0
-    for (const file of [
-      'a11y',
-      'booking',
-      'components',
-      'contrast',
-      'indexes',
-      'links',
-      'localBackend',
-      'rulesContracts',
-      'routes',
-      'seedIntegrity',
-      'settlement',
-      'tokenPolicy',
-      'webrtc',
-    ]) {
-      const source = readFileSync(path.join(ROOT, `tests/unit/${file}.spec.ts`), 'utf8')
+    // The list of suites is discovered, not written down: a hand-maintained array
+    // silently drops every suite added after it was written, which made this
+    // check pass for the wrong reason while the documented total drifted.
+    const suites = readdirSync(path.join(ROOT, 'tests/unit'))
+      .filter((file) => file.endsWith('.spec.ts'))
+      .sort()
+    expect(suites.length).toBeGreaterThanOrEqual(19)
+    for (const file of suites) {
+      const source = readFileSync(path.join(ROOT, 'tests/unit', file), 'utf8')
       declared += [...source.matchAll(/^\s*it(?:\.each\([^)]*\))?\(\s*['"`]/gm)].length
     }
+
     // `it.each` declares one call but runs several cases, so the declared count is
     // a lower bound: the documented total must sit just above it. The window is
     // wide enough for the parametrised suites and narrow enough that a stale

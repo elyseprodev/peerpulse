@@ -79,6 +79,13 @@ const QUERIES: QueryShape[] = [
     note: 'found 2026-10-04 — missing. Without it every scheduled sweep throws and no session ever auto-settles.',
   },
   {
+    source: 'functions/src/triggers.ts — sendSessionReminders (the ten-minute sweep)',
+    collection: 'bookings',
+    equality: ['status'],
+    sort: { field: 'startAt', order: 'ASCENDING' },
+    note: 'found 2026-10-04 — missing. The reminder sweep asks for confirmed sessions starting inside the next hour; without this index it throws and no reminder is ever sent.',
+  },
+  {
     source: 'src/lib/backend/firebase/index.ts — listNotifications and watchNotifications',
     collection: 'notifications',
     equality: ['uid'],

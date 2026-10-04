@@ -7,8 +7,14 @@ import type {
   DisputeCase,
   ModerationReport,
 } from '@shared/domain'
+import {
+  commentReplyDraft,
+  disputeResolvedDraft,
+  refundIssuedDraft,
+  reportResolvedDraft,
+} from '@shared/notify'
 import { persist, slugify, sortBy, uid, type LocalDatabase } from './db'
-import { pushNotification } from './notify'
+import { pushDraft } from './notify'
 import { BackendRequestError, type CreateCommunityInput, type CreatePostInput, type CreateReportInput } from '../types'
 
 function fail(code: string, message: string): never {
@@ -194,13 +200,17 @@ export function createComment(
   post.updatedAt = comment.createdAt
 
   if (post.authorUid !== input.authorUid) {
-    pushNotification(db, {
-      uid: post.authorUid,
-      type: 'community_reply',
-      title: `${author.displayName} replied to your post`,
-      body: comment.body.slice(0, 140),
-      link: `/communities/${post.communityId}`,
-    })
+    pushDraft(
+      db,
+      commentReplyDraft({
+        recipientUid: post.authorUid,
+        authorName: author.displayName,
+        communityId: post.communityId,
+        postId: post.id,
+        postTitle: post.title,
+        commentBody: comment.body,
+      }),
+    )
   }
   persist('db', 'comments', 'posts')
   return comment
@@ -270,13 +280,14 @@ export function resolveReport(
     }
   }
 
-  pushNotification(db, {
-    uid: report.reporterUid,
-    type: 'moderation_action',
-    title: 'Your report was reviewed',
-    body: patch.resolution || `Status: ${patch.status}`,
-    link: '/community-guidelines',
-  })
+  pushDraft(
+    db,
+    reportResolvedDraft({
+      reporterUid: report.reporterUid,
+      upheld: patch.status === 'resolved',
+      resolution: patch.resolution || `Status: ${patch.status}`,
+    }),
+  )
 
   persist('db', 'reports', 'posts', `notifications|${report.reporterUid}`)
   return report
@@ -312,15 +323,13 @@ export function resolveDispute(
     booking.settlement.note = `Dispute resolved by a steward: ${patch.outcome}`
   }
 
-  for (const uidValue of [dispute.openedByUid, dispute.againstUid]) {
-    pushNotification(db, {
-      uid: uidValue,
-      type: 'moderation_action',
-      title: 'Your dispute was reviewed',
-      body: patch.outcome,
-      link: '/bookings',
-      priority: 'high',
-    })
+  // Both sides are told, and a refund reads as a refund. Production used
+  // `session_disputed` for this, which is the type for *opening* a dispute.
+  pushDraft(db, disputeResolvedDraft(dispute, true, patch.outcome))
+  pushDraft(db, disputeResolvedDraft(dispute, false, patch.outcome))
+  if (booking && patch.status !== 'open' && patch.status !== 'resolved_release') {
+    const refundTokens = booking.settlement.refundTxId ? Math.abs(booking.tokenAmount / 2) : 0
+    if (refundTokens > 0) pushDraft(db, refundIssuedDraft(booking, refundTokens, patch.outcome))
   }
   persist('db', 'disputes', 'bookings')
   return dispute

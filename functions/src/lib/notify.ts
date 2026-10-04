@@ -5,8 +5,28 @@
  * stays consistent between the Cloud Functions and the reference backend.
  */
 import { Timestamp, type DocumentData, type Transaction } from 'firebase-admin/firestore'
-import type { AppNotification, Booking, PlatformConfig } from '../shared/domain'
-import { formatDateTimeRange } from './format'
+import type { AppNotification, Booking, DisputeCase, UserStatus } from '../shared/domain'
+import {
+  ROOM_OPEN_MINUTES_BEFORE,
+  accountStatusChangedDraft,
+  bookingCancelledDraft,
+  bookingConfirmedDraft,
+  bookingDeclinedDraft,
+  bookingReminderDraft,
+  bookingRequestedDraft,
+  bookingRescheduledDraft,
+  commentReplyDraft,
+  disputeRaisedDraft,
+  disputeResolvedDraft,
+  pendingCompletionDraft,
+  refundIssuedDraft,
+  reportResolvedDraft,
+  reviewReceivedDraft,
+  roleChangedDraft,
+  sessionSettledDraft,
+  tokenGrantDraft,
+  type NotificationDraft,
+} from '../shared/notify'
 import { COLLECTIONS, db } from './refs'
 
 export interface NotifyInput {
@@ -41,107 +61,112 @@ export function notifyMany(tx: Transaction, inputs: NotifyInput[]): void {
 }
 
 /** Fire-and-forget variant for paths that are not already transactional. */
-export async function notifyNow(input: NotifyInput): Promise<void> {
-  await db.collection(COLLECTIONS.notifications).doc().set(payload(input))
+/**
+ * Writes outside a transaction. `id` may be given when the send must be
+ * idempotent: a retried or redeployed trigger then cannot send twice, because
+ * `set` on an existing id overwrites rather than duplicates. The reminder sweep
+ * uses this; every other caller lets Firestore mint the id.
+ */
+export async function notifyNow(input: NotifyInput, id?: string): Promise<void> {
+  const collection = db.collection(COLLECTIONS.notifications)
+  const reference = id ? collection.doc(id) : collection.doc()
+  await reference.set(payload(input))
 }
 
 /* ───────────────────────── message composition ───────────────────────── */
 
-export function bookingRequestedNotification(booking: Booking, teacherName: string, learnerName: string): NotifyInput {
+/**
+ * The wording and the recipient of every notification live in
+ * `shared/notify.ts`, which the local reference backend composes from too. The
+ * wrappers below only add the two things this side needs: a `NotifyInput` shape
+ * the transaction helpers accept, and — where the app knows it — the balance the
+ * member is left with.
+ *
+ * The recipient logic used to live here and was wrong: it inferred who to tell
+ * from `settlement.state`, which identifies the member who *acted* rather than
+ * the one who needs to know. See the note at the top of `shared/notify.ts`.
+ */
+function toInput(draft: NotificationDraft): NotifyInput {
   return {
-    uid: booking.teacherUid,
-    type: 'booking_requested',
-    title: `${learnerName} asked for ${booking.skillTitle}`,
-    body: `${formatDateTimeRange(booking.startAt, booking.endAt)} · ${booking.tokenAmount} Time Token(s) for ${teacherName}. Confirm or decline it on your bookings page.`,
-    link: '/bookings',
-    priority: 'high',
+    uid: draft.uid,
+    type: draft.type,
+    title: draft.title,
+    body: draft.body,
+    link: draft.link,
+    priority: draft.priority,
   }
 }
+
+/** Every notification this file offers, for the contract test in functions/tests. */
+export const COMPOSERS = {
+  bookingRequested: (booking: Booking, teacherName: string, learnerName: string): NotifyInput =>
+    toInput(bookingRequestedDraft(booking, teacherName, learnerName)),
+  bookingConfirmed: (booking: Booking, teacherName: string): NotifyInput =>
+    toInput(bookingConfirmedDraft(booking, teacherName)),
+  bookingDeclined: (booking: Booking, teacherName: string, reason: string): NotifyInput =>
+    toInput(bookingDeclinedDraft(booking, teacherName, reason)),
+  bookingCancelled: (
+    booking: Booking,
+    actorUid: string,
+    actorName: string,
+    refundTokens: number,
+    policyCode: string,
+    explanation?: string,
+  ): NotifyInput => toInput(bookingCancelledDraft(booking, actorUid, actorName, refundTokens, policyCode, explanation)),
+  bookingRescheduled: (booking: Booking, actorUid: string, actorName: string): NotifyInput =>
+    toInput(bookingRescheduledDraft(booking, actorUid, actorName)),
+  bookingReminder: (booking: Booking, recipientUid: string, counterpartyName: string, startsInMinutes: number): NotifyInput =>
+    toInput(bookingReminderDraft(booking, recipientUid, counterpartyName, startsInMinutes)),
+  sessionSettled: (booking: Booking, tokensMoved: number, role: 'teacher' | 'learner', balanceAfter?: number): NotifyInput =>
+    toInput(sessionSettledDraft(booking, tokensMoved, role, balanceAfter)),
+  pendingCompletion: (booking: Booking): NotifyInput => toInput(pendingCompletionDraft(booking)),
+  refundIssued: (booking: Booking, refundTokens: number, explanation: string): NotifyInput =>
+    toInput(refundIssuedDraft(booking, refundTokens, explanation)),
+  disputeRaised: (dispute: DisputeCase, openedByName: string): NotifyInput => toInput(disputeRaisedDraft(dispute, openedByName)),
+  disputeResolved: (dispute: DisputeCase, forOpener: boolean, outcome: string): NotifyInput =>
+    toInput(disputeResolvedDraft(dispute, forOpener, outcome)),
+  reviewReceived: (input: { subjectUid: string; authorName: string; rating: number; comment: string; skillTitle: string }): NotifyInput =>
+    toInput(reviewReceivedDraft(input)),
+  commentReply: (input: Parameters<typeof commentReplyDraft>[0]): NotifyInput => toInput(commentReplyDraft(input)),
+  reportResolved: (input: { reporterUid: string; upheld: boolean; resolution: string }): NotifyInput =>
+    toInput(reportResolvedDraft(input)),
+  tokenGrant: (uid: string, amount: number, reason: string, options: { signup?: boolean } = {}): NotifyInput =>
+    toInput(tokenGrantDraft(uid, amount, reason, options)),
+  roleChanged: (uid: string, role: 'member' | 'admin', changedByUid: string): NotifyInput =>
+    toInput(roleChangedDraft(uid, role, changedByUid)),
+  accountStatusChanged: (uid: string, status: UserStatus, reason: string): NotifyInput =>
+    toInput(accountStatusChangedDraft(uid, status, reason)),
+}
+
+/* The historical function names, kept so the call sites read the same. */
+
+export const bookingRequestedNotification = COMPOSERS.bookingRequested
+export const bookingConfirmedNotification = COMPOSERS.bookingConfirmed
+export const bookingDeclinedNotification = COMPOSERS.bookingDeclined
+export const bookingRescheduledNotification = COMPOSERS.bookingRescheduled
+export const reminderNotification = COMPOSERS.bookingReminder
+export const sessionSettledNotification = COMPOSERS.sessionSettled
+export const pendingCompletionNotification = COMPOSERS.pendingCompletion
+export const reviewReceivedNotification = COMPOSERS.reviewReceived
+export const reportResolvedNotification = COMPOSERS.reportResolved
+export const refundIssuedNotification = COMPOSERS.refundIssued
+export const disputeRaisedNotification = COMPOSERS.disputeRaised
+export const disputeResolvedNotification = COMPOSERS.disputeResolved
 
 /**
- * The join window is fixed at 15 minutes by `canJoinRoom` in shared/booking.ts,
- * which is also what the UI and the `openRoom` function enforce.
+ * A cancellation, addressed to the other participant. The recipient is derived
+ * from who cancelled, not from whether escrow happened to be in play.
  */
-export const ROOM_OPEN_MINUTES_BEFORE = 15
-
-export function bookingConfirmedNotification(booking: Booking, teacherName: string): NotifyInput {
-  return {
-    uid: booking.learnerUid,
-    type: 'booking_confirmed',
-    title: `${teacherName} confirmed your session`,
-    body: `${booking.skillTitle} · ${formatDateTimeRange(booking.startAt, booking.endAt)}. The room opens ${ROOM_OPEN_MINUTES_BEFORE} minutes before the start — you will see the join button on your bookings page.`,
-    link: '/bookings',
-  }
+export function bookingCancelledNotification(
+  booking: Booking,
+  actorName: string,
+  refundTokens: number,
+  policyCode: string,
+  explanation?: string,
+): NotifyInput {
+  const actorUid = booking.cancellation?.byUid ?? booking.createdByUid
+  return COMPOSERS.bookingCancelled(booking, actorUid, actorName, refundTokens, policyCode, explanation)
 }
 
-export function bookingDeclinedNotification(booking: Booking, teacherName: string, reason: string): NotifyInput {
-  return {
-    uid: booking.learnerUid,
-    type: 'booking_declined',
-    title: `${teacherName} could not take that slot`,
-    body: reason
-      ? `Reason: ${reason}`
-      : `${booking.skillTitle} was declined. Try another time or another teacher — your tokens were never touched.`,
-    link: '/skills',
-  }
-}
-
-export function bookingCancelledNotification(booking: Booking, byName: string, refundTokens: number, policyCode: string): NotifyInput {
-  const counterpartyUid = booking.settlement.state === 'refunded' ? booking.teacherUid : booking.learnerUid
-  return {
-    uid: counterpartyUid,
-    type: 'booking_cancelled',
-    title: `${byName} cancelled ${booking.skillTitle}`,
-    body:
-      refundTokens > 0
-        ? `${refundTokens} Time Token(s) were returned under the ${policyCode.replace(/_/g, ' ')} policy.`
-        : `Nothing was charged (policy: ${policyCode.replace(/_/g, ' ')}).`,
-    link: '/bookings',
-  }
-}
-
-export function bookingRescheduledNotification(booking: Booking, byName: string): NotifyInput {
-  return {
-    uid: booking.learnerUid === booking.createdByUid ? booking.teacherUid : booking.learnerUid,
-    type: 'booking_rescheduled',
-    title: `${byName} moved ${booking.skillTitle}`,
-    body: `New time: ${formatDateTimeRange(booking.startAt, booking.endAt)}.`,
-    link: '/bookings',
-    priority: 'high',
-  }
-}
-
-export function sessionSettledNotification(booking: Booking, tokens: number, role: 'teacher' | 'learner'): NotifyInput {
-  return {
-    uid: role === 'teacher' ? booking.teacherUid : booking.learnerUid,
-    type: 'session_settled',
-    title: role === 'teacher' ? `You earned ${tokens} Time Token(s)` : `Settled: ${tokens} Time Token(s) spent`,
-    body:
-      role === 'teacher'
-        ? `${booking.skillTitle} is settled. Spend your tokens on something you want to learn.`
-        : `${booking.skillTitle} is settled. Your balance and the full ledger are on your wallet page.`,
-    link: '/wallet',
-  }
-}
-
-export function pendingCompletionNotification(booking: Booking): NotifyInput {
-  const minutes = booking.durationMinutes
-  return {
-    uid: booking.teacherUid,
-    type: 'session_settled',
-    title: 'Confirm your session to release the tokens',
-    body: `${booking.skillTitle} ran for ${minutes} minutes but the automatic check could not verify enough attendance. Confirm it, or open a dispute if something went wrong.`,
-    link: '/bookings',
-    priority: 'high',
-  }
-}
-
-export function reminderNotification(booking: Booking, config: PlatformConfig): NotifyInput {
-  return {
-    uid: booking.teacherUid,
-    type: 'booking_reminder',
-    title: `Session soon: ${booking.skillTitle}`,
-    body: `Starts ${formatDateTimeRange(booking.startAt, booking.endAt)}. Your room is ready — the join button unlocks ${ROOM_OPEN_MINUTES_BEFORE} minutes before the start (policy ${config.version}).`,
-    link: '/bookings',
-  }
-}
+export { ROOM_OPEN_MINUTES_BEFORE }
+export type { NotificationDraft }

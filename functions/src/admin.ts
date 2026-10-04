@@ -22,7 +22,7 @@ import {
 } from './shared'
 import { fromQuery, fromSnapshot, toFirestore } from './lib/convert'
 import { COLLECTIONS, db, nowIso, requireAdmin } from './lib/refs'
-import { notify, notifyNow } from './lib/notify'
+import { COMPOSERS, notify, notifyNow } from './lib/notify'
 import { fail, rethrow } from './lib/errors'
 
 /* ────────────────────────────── setUserRole ────────────────────────────── */
@@ -46,17 +46,7 @@ export const setUserRole = onCall(async (request: CallableRequest<{ uid?: string
     await getAuth().setCustomUserClaims(uid, { admin: role === 'admin' })
     await db.collection(COLLECTIONS.users).doc(uid).set({ role, updatedAt: Timestamp.now() }, { merge: true })
 
-    await notifyNow({
-        uid,
-        type: 'community_reply',
-        title: role === 'admin' ? 'You are now a steward' : 'Your steward role was removed',
-        body:
-          role === 'admin'
-            ? 'You can now resolve reports and disputes, adjust wallets with a reason, and edit the token policy.'
-            : `Your account is a member account again. Changed by ${adminUid}.`,
-        link: role === 'admin' ? '/admin' : '/dashboard',
-        priority: 'high',
-    })
+    await notifyNow(COMPOSERS.roleChanged(uid, role, adminUid))
     return { ...target, role }
   } catch (error) {
     rethrow(error, 'setUserRole')
@@ -89,14 +79,7 @@ export const setUserStatus = onCall(async (request: CallableRequest<{ uid?: stri
       await getAuth().setCustomUserClaims(uid, { admin: target.role === 'admin' })
     }
 
-    await notifyNow({
-      uid,
-      type: 'community_reply',
-      title: status === 'active' ? 'Your account is active again' : 'Your account was suspended',
-      body: (reason ?? '').slice(0, 400) || 'Contact a steward if you would like this reviewed.',
-      link: '/settings',
-      priority: status === 'active' ? 'normal' : 'high',
-    })
+    await notifyNow(COMPOSERS.accountStatusChanged(uid, status, reason ?? ''))
 
     return { ...target, status }
   } catch (error) {
@@ -164,13 +147,7 @@ export const adjustWallet = onCall(async (request: CallableRequest<{ uid?: strin
       )
       tx.set(db.collection(COLLECTIONS.transactions).doc(transactionId), { ...(toFirestore(row) as DocumentData), createdAt: at })
 
-      notify(tx, {
-        uid,
-        type: 'token_grant',
-        title: value > 0 ? `${value} Time Token(s) added by a steward` : `${Math.abs(value)} Time Token(s) removed by a steward`,
-        body: reason.trim().slice(0, 300),
-        link: '/wallet',
-      })
+      notify(tx, COMPOSERS.tokenGrant(uid, value, reason))
 
       return { ...wallet, balance: nextBalance }
     })

@@ -13,12 +13,14 @@
  * codebase.
  */
 import * as functionsV1 from 'firebase-functions/v1'
+import { onDocumentCreated } from 'firebase-functions/v2/firestore'
+import { onSchedule } from 'firebase-functions/v2/scheduler'
 import { getAuth } from 'firebase-admin/auth'
 import { Timestamp } from 'firebase-admin/firestore'
-import { signupGrantAmount, type PlatformConfig, type TokenTransaction, type UserProfile, type Wallet } from '../src/shared'
+import { signupGrantAmount, type Booking, type PlatformConfig, type TokenTransaction, type UserProfile, type Wallet } from '../src/shared'
 import { fromSnapshot, toFirestore } from './lib/convert'
 import { COLLECTIONS, db, nowIso } from './lib/refs'
-import { notifyNow } from './lib/notify'
+import { COMPOSERS, notifyNow } from './lib/notify'
 
 function defaultProfile(input: {
   uid: string
@@ -140,13 +142,123 @@ export const onUserCreated = functionsV1.auth.user().onCreate(async (user) => {
     }
   })
 
-  await notifyNow({
-    uid,
-    type: 'token_grant',
-    title: `${grant} welcome Time Tokens added`,
-    body: 'Trade an hour of what you know for an hour of what you want to learn. Publish a listing to get started.',
-    link: '/wallet',
-  })
+  await notifyNow(COMPOSERS.tokenGrant(uid, grant, 'Welcome grant — new members may receive introductory Time Tokens.', { signup: true }))
 
   functionsV1.logger.info(`[PeerPulse] provisioned member ${uid} with ${grant} Time Token(s)`)
 })
+
+/* ───────────────────────── community reply ───────────────────────── */
+
+/**
+ * Someone commented on a post.
+ *
+ * Comments and posts are written straight from the browser (the security rules
+ * police them, see firestore.rules), so this is where the author learns about it.
+ * The notification is skipped when the comment is the author's own.
+ */
+export async function notifyPostAuthorOfComment(input: {
+  communityId: string
+  postId: string
+  authorUid: string
+  body: string
+}): Promise<boolean> {
+  const postSnapshot = await db
+    .collection(COLLECTIONS.communities)
+    .doc(input.communityId)
+    .collection('posts')
+    .doc(input.postId)
+    .get()
+  const post = postSnapshot.data()
+  if (!post) return false
+
+  const recipientUid = String(post.authorUid ?? '')
+  if (!recipientUid || recipientUid === input.authorUid) return false
+
+  const authorSnapshot = await db.collection(COLLECTIONS.users).doc(input.authorUid).get()
+  const authorName = String((authorSnapshot.data() as { displayName?: string } | undefined)?.displayName ?? 'A member')
+
+  await notifyNow(
+    COMPOSERS.commentReply({
+      recipientUid,
+      authorName,
+      communityId: input.communityId,
+      postId: input.postId,
+      postTitle: String(post.title ?? 'your post'),
+      commentBody: input.body,
+    }),
+  )
+  return true
+}
+
+export const onCommentCreated = onDocumentCreated(
+  { document: 'communities/{communityId}/posts/{postId}/comments/{commentId}', region: 'us-central1' },
+  async (event) => {
+    const comment = event.data?.data()
+    if (!comment) return
+    await notifyPostAuthorOfComment({
+      communityId: event.params.communityId,
+      postId: event.params.postId,
+      authorUid: String(comment.authorUid ?? ''),
+      body: String(comment.body ?? ''),
+    })
+  },
+)
+
+/* ─────────────────────────── session reminders ─────────────────────────── */
+
+/**
+ * Reminders for confirmed sessions, sent once each by the sweep that already
+ * exists for auto-settlement — a scheduled function rather than a per-booking
+ * timer, because Cloud Functions cannot hold state between invocations and a
+ * bookmark per booking would drift against reschedules.
+ *
+ * The ledger for "already told" is the notification itself (`reminder_<id>` as
+ * the document id), so a redeployed or retried sweep cannot send twice.
+ */
+export async function sendSessionReminders(now: Date = new Date()): Promise<number> {
+  const windowEnd = new Date(now.getTime() + 60 * 60 * 1000)
+  // `startAt` is stored as a Firestore Timestamp (`lib/convert.ts` turns ISO
+  // strings into one on write), so the bounds must be Timestamps too. Comparing
+  // against ISO strings compiles, deploys, and then silently matches nothing at
+  // all — the failure mode this comment exists to prevent.
+  const snapshot = await db
+    .collection(COLLECTIONS.bookings)
+    .where('status', '==', 'confirmed')
+    .where('startAt', '>=', Timestamp.fromDate(now))
+    .where('startAt', '<=', Timestamp.fromDate(windowEnd))
+    .get()
+
+  let sent = 0
+  for (const document of snapshot.docs) {
+    const booking = fromSnapshot<Booking>(document)
+    if (!booking) continue
+    const startsInMinutes = Math.max(0, Math.round((new Date(booking.startAt).getTime() - now.getTime()) / 60000))
+    const [teacherSnapshot, learnerSnapshot] = await Promise.all([
+      db.collection(COLLECTIONS.users).doc(booking.teacherUid).get(),
+      db.collection(COLLECTIONS.users).doc(booking.learnerUid).get(),
+    ])
+    const teacherName = String((teacherSnapshot.data() as { displayName?: string } | undefined)?.displayName ?? 'your teacher')
+    const learnerName = String((learnerSnapshot.data() as { displayName?: string } | undefined)?.displayName ?? 'a member')
+
+    const recipients = [
+      { uid: booking.learnerUid, name: teacherName },
+      { uid: booking.teacherUid, name: learnerName },
+    ]
+    for (const recipient of recipients) {
+      const reference = db.collection(COLLECTIONS.notifications).doc(`reminder_${document.id}_${recipient.uid}`)
+      if ((await reference.get()).exists) continue
+      await notifyNow(COMPOSERS.bookingReminder(booking, recipient.uid, recipient.name, startsInMinutes), reference.id)
+      sent += 1
+    }
+  }
+  return sent
+}
+
+/** Every ten minutes, so a session in the next hour is reminded in good time. */
+export const sessionReminders = onSchedule(
+  { schedule: 'every 10 minutes', region: 'us-central1' },
+  async () => {
+    const sent = await sendSessionReminders()
+    functionsV1.logger.info(`[PeerPulse] session reminders sent: ${sent}`)
+  },
+)

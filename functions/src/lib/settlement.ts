@@ -254,8 +254,8 @@ export async function settleBookingTransactionally(
     )
 
     const settledTokens = plan.outcome === 'partial' ? plan.creditAmount : plan.tokenAmount
-    notify(tx, sessionSettledNotification(booking, settledTokens, 'teacher'))
-    notify(tx, sessionSettledNotification(booking, plan.debitAmount, 'learner'))
+    notify(tx, sessionSettledNotification(booking, settledTokens, 'teacher', write.nextTeacher.balance))
+    notify(tx, sessionSettledNotification(booking, plan.debitAmount, 'learner', write.nextLearner.balance))
 
     return {
       booking: {

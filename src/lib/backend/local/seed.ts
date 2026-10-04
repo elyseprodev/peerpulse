@@ -10,6 +10,7 @@
  */
 import {
   DEFAULT_PLATFORM_CONFIG,
+  bookingConfirmedDraft,
   buildSettlementWrites,
   computeTokenAmount,
   listingAfterBooking,
@@ -18,12 +19,14 @@ import {
   mergeWindows,
   roundTokens,
   signupGrantAmount,
+  commentReplyDraft,
+  sessionSettledDraft,
   statsAfterReview,
   statsAfterSettlement,
+  tokenGrantDraft,
+  type NotificationDraft,
 } from '@shared'
 import {
-
-  type AppNotification,
   type AttendanceSegment,
   type Booking,
   type Community,
@@ -39,6 +42,19 @@ import {
   type Wallet,
 } from '@shared/domain'
 import { slugify, type LocalDatabase } from './db'
+
+/** Seed helpers: a broken demo fixture should fail loudly, not render blanks. */
+function requireSeedUser(db: LocalDatabase, uid: string): UserProfile {
+  const user = db.users[uid]
+  if (!user) throw new Error(`seed: missing demo member ${uid}`)
+  return user
+}
+
+function requireSeedBooking(db: LocalDatabase, id: string): Booking {
+  const booking = db.bookings[id]
+  if (!booking) throw new Error(`seed: missing demo booking ${id}`)
+  return booking
+}
 
 const HOUR = 3_600_000
 const DAY = 24 * HOUR
@@ -1086,42 +1102,45 @@ export function seedLocalDatabase(db: LocalDatabase): SeedResult {
     void owner
   }
 
-  /* ── notifications for the demo member ──────────────────────────────── */
-  const notifications: Array<Pick<AppNotification, 'type' | 'title' | 'body' | 'link' | 'read' | 'priority'> & { at: string }> = [
+  /* ── notifications for the demo member ────────────────────────────────
+   *
+   * Composed by `shared/notify.ts`, like every notification the running app
+   * writes. The seed used to hand-write these and the copy drifted from the real
+   * thing (a `low`-priority reply with a title no composer produces). The `read`
+   * flag and the timestamps stay hand-written: they are staging for the demo,
+   * not content.
+   */
+  const upcomingBooking = requireSeedBooking(db, 'bk_2001')
+  const settledBooking = Object.values(db.bookings).find(
+    (b) => b.status === 'completed' && b.teacherUid === 'demo_sam',
+  )
+  if (!settledBooking) throw new Error('seed: no completed session for demo_sam to build notifications from')
+  const notifications: Array<NotificationDraft & { at: string; read: boolean }> = [
     {
-      type: 'booking_confirmed',
-      title: 'Mei Tanaka confirmed your session',
-      body: 'Spreadsheets that actually work is confirmed for your upcoming slot.',
-      link: '/bookings',
+      ...bookingConfirmedDraft(upcomingBooking, requireSeedUser(db, upcomingBooking.teacherUid).displayName),
       read: false,
-      priority: 'normal',
       at: iso(new Date(now.getTime() - 3 * HOUR)),
     },
     {
-      type: 'session_settled',
-      title: '1 Time Token earned',
-      body: 'Guitar for absolute beginners settled automatically. Tomás was credited nothing, you earned 1 token.',
-      link: '/wallet',
+      ...sessionSettledDraft(settledBooking, 1, 'teacher'),
       read: false,
-      priority: 'normal',
       at: iso(new Date(now.getTime() - 17 * DAY)),
     },
     {
-      type: 'community_reply',
-      title: 'Lena Fischer replied in First Build Club',
-      body: 'A good trigger: if you describe it with the word "and" more than twice…',
-      link: '/communities/cm_coders',
+      ...commentReplyDraft({
+        recipientUid: 'demo_sam',
+        authorName: 'Lena Fischer',
+        communityId: 'cm_coders',
+        postId: 'po_coders_1',
+        postTitle: 'your post',
+        commentBody: 'A good trigger: if you describe it with the word "and" more than twice…',
+      }),
       read: true,
-      priority: 'low',
       at: iso(new Date(now.getTime() - 2 * DAY)),
     },
     {
-      type: 'token_grant',
-      title: '3 welcome Time Tokens added',
-      body: 'Your starting balance is ready. Trade an hour, earn an hour.',
-      link: '/wallet',
+      ...tokenGrantDraft('demo_sam', 3, 'Welcome grant — new members may receive introductory Time Tokens.', { signup: true }),
       read: true,
-      priority: 'normal',
       at: iso(daysAgo(60, 9)),
     },
   ]
@@ -1130,7 +1149,7 @@ export function seedLocalDatabase(db: LocalDatabase): SeedResult {
     const id = `ntf_demo_sam_${i + 1}`
     db.notifications[id] = {
       id,
-      uid: 'demo_sam',
+      uid: n.uid,
       type: n.type,
       title: n.title,
       body: n.body,

@@ -25,7 +25,13 @@ import {
 } from './shared'
 import { fromSnapshot, toFirestore } from './lib/convert'
 import { COLLECTIONS, db, nowIso, requireAdmin, requireUid } from './lib/refs'
-import { notify } from './lib/notify'
+import {
+  disputeResolvedNotification,
+  notify,
+  refundIssuedNotification,
+  reportResolvedNotification,
+  reviewReceivedNotification,
+} from './lib/notify'
 import { fail, rethrow } from './lib/errors'
 
 /* ────────────────────────────── createReview ───────────────────────────── */
@@ -118,13 +124,16 @@ export const createReview = onCall(async (request: CallableRequest<CreateReviewP
         }
       }
 
-      notify(tx, {
-        uid: subjectUid,
-        type: 'review_received',
-        title: `${author?.displayName ?? 'A member'} rated your session ${rating}/5`,
-        body: review.comment || `${booking.skillTitle} — you can reply to this review from your profile.`,
-        link: `/members/${subjectUid}`,
-      })
+      notify(
+        tx,
+        reviewReceivedNotification({
+          subjectUid,
+          authorName: author?.displayName ?? 'A member',
+          rating,
+          comment: review.comment,
+          skillTitle: booking.skillTitle,
+        }),
+      )
     })
 
     return review
@@ -186,17 +195,16 @@ export const resolveReport = onCall(async (request: CallableRequest<ResolveRepor
         tx.set(target, { moderation, reviewedByUid: adminUid, reviewedAt: now }, { merge: true })
       }
 
-      notify(tx, {
-        uid: report.reporterUid,
-        type: 'community_reply',
-        title: upheld ? 'Your report was upheld' : 'Your report was reviewed',
-        body:
-          (resolution ?? '').slice(0, 400) ||
-          (upheld
-            ? 'A steward actioned the content you reported.'
-            : 'A steward reviewed the content and took no further action.'),
-        link: '/notifications',
-      })
+      // A steward's decision about a report is a moderation action — the type
+      // `community_reply` is reserved for someone replying to a member's post.
+      notify(
+        tx,
+        reportResolvedNotification({
+          reporterUid: report.reporterUid,
+          upheld,
+          resolution: resolution ?? '',
+        }),
+      )
     })
 
     return {
@@ -330,25 +338,27 @@ export const resolveDispute = onCall(async (request: CallableRequest<ResolveDisp
             },
             { merge: true },
           )
+
+          // A refund is its own event: it changes a balance, and it should be
+          // findable as such rather than buried in "your dispute was resolved".
+          notify(
+            tx,
+            refundIssuedNotification(
+              booking,
+              refundAmount,
+              (outcome ?? '').slice(0, 200) || `a steward decided the ${status.replace(/_/g, ' ')} resolution.`,
+            ),
+          )
         }
       }
 
-      const body = (outcome ?? '').slice(0, 400) || `A steward closed the dispute (${status.replace(/_/g, ' ')}).`
-      notify(tx, {
-        uid: dispute.openedByUid,
-        type: 'session_disputed',
-        title: 'Your dispute was resolved',
-        body,
-        link: '/bookings',
-        priority: 'high',
-      })
-      notify(tx, {
-        uid: dispute.againstUid,
-        type: 'session_disputed',
-        title: 'A dispute about your session was resolved',
-        body,
-        link: '/bookings',
-      })
+      const resolved = disputeResolvedNotification(
+        { ...dispute, status },
+        true,
+        (outcome ?? '').slice(0, 400) || `A steward closed the dispute (${status.replace(/_/g, ' ')}).`,
+      )
+      notify(tx, resolved)
+      notify(tx, disputeResolvedNotification({ ...dispute, status }, false, resolved.body))
     })
 
     return {

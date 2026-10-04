@@ -456,7 +456,7 @@ export const respondToBooking = onCall(async (request: CallableRequest<RespondPa
           bookingCancelledNotification(next, actorName, next.cancellation?.refundTokens ?? 0, next.cancellation?.policyCode ?? 'policy'),
         )
       }
-      if (payload.action === 'reschedule') notify(tx, bookingRescheduledNotification(next, actorName))
+      if (payload.action === 'reschedule') notify(tx, bookingRescheduledNotification(next, uid, actorName))
 
       return { ...next, roomId }
     })

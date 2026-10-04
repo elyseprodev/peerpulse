@@ -23,7 +23,7 @@ evidence of anything.
 | `partial` | Implemented, but something in the requirement is missing, simulated, or only proven in one backend mode. |
 | `not implemented` | The requirement has no working implementation. It is listed so it cannot be forgotten. |
 
-**19 verified · 14 partial · 1 not implemented** — recomputed from the rows below by
+**20 verified · 13 partial · 1 not implemented** — recomputed from the rows below by
 `tests/unit/requirementsCoverage.spec.ts`, so the summary cannot drift from the table. Nothing here is claimed as
 verified on the strength of "the code looks right".
 
@@ -63,15 +63,15 @@ verified on the strength of "the code looks right".
 | FR-30 | Steward triage `open → reviewing → resolved/dismissed`, hide content | `functions/src/social.ts` | `functions/tests/functions.spec.ts`: "hides upheld content and records the steward", "dismisses a report without touching the reported content" | `verified` | — |
 | FR-31 | Disputes with refund / release / split outcomes | `functions/src/social.ts`, `shared/settlement.ts` | `functions/tests/functions.spec.ts`: "can release a settlement without moving a token, and refuses to resolve twice over"; `tests/unit/localBackend.spec.ts`: "lets an admin adjust a wallet and keeps the reason in the ledger" | `verified` | A split refund is computed in `shared` and unit-tested there; the callable path is proven for release, not for split |
 | FR-32 | Reviews need a completed session; one per member; reply allowed | `functions/src/social.ts`, `firestore.rules` | `tests/unit/localBackend.spec.ts`: "only allows reviews after a completed session", "counts a review once, under the field names the UI reads"; `functions/tests/functions.spec.ts`: "accepts one review per member, updates the listing and profile aggregates, and refuses a duplicate" | `verified` | — |
-| FR-33 | Notifications for the eleven listed events | `functions/src/triggers.ts`, `functions/src/social.ts`, `functions/src/admin.ts`, `src/stores/notifications.ts` | `functions/tests/functions.spec.ts`: "provisions a profile, a wallet with the grant, one ledger row and a welcome notification" | `partial` | Nine of the eleven events are written by the callables that already have tests; reschedule and community-reply notifications are written but not asserted individually |
+| FR-33 | Notifications for the eleven listed events | `shared/notify.ts` (composition), `functions/src/triggers.ts`, `functions/src/social.ts`, `functions/src/admin.ts`, `src/lib/backend/local/`, `src/stores/notifications.ts` | `tests/unit/notifications.spec.ts`: "a request, a decline and a cancellation of an unpaid session", "a confirmation and a reschedule", "a refund when the teacher cancels a session that was already charged", "a settlement, a dispute and a review", "a community reply and a token grant"; `functions/tests/notifications.spec.ts`: "a cancellation reaches the member who did not cancel"; `functions/tests/triggers.spec.ts`: "tells both participants about a session starting inside the hour", "tells the post author who replied" | `verified` | All eleven events are driven through the real backend API and asserted by type and recipient. The wording, recipient and type of every message are composed once in `shared/notify.ts` and used by both backends, after an audit found production telling the *cancelling* member about their own cancellation, typing steward messages as `community_reply`, and never sending the reminder the domain type had declared since the first commit |
 | FR-34 | Opt-in browser push when a VAPID key is configured | — | — | `not implemented` | Nothing sends Web Push. What remains: a `firebase-messaging-sw.js` service worker, a client `getToken({ vapidKey })` registration writing the token to the member's profile, a rules-allowed field for it, and a Cloud Function that sends on notification create. The settings screen states this instead of offering a button that does nothing |
 
 ---
 
 ## Reading this table
 
-- **`verified` means a test exists and was run.** Root suites run with `npm test` (222 tests), Cloud Functions
-  with `cd functions && npm test` (43 tests). The Firestore rules emulator suite is **not** among them: it has
+- **`verified` means a test exists and was run.** Root suites run with `npm test` (287 tests), Cloud Functions
+  with `cd functions && npm test` (79 tests). The Firestore rules emulator suite is **not** among them: it has
   never executed in this environment (`docs/testing.md` §4), which is why FR-15 and FR-21 are `partial` even
   though both have tests.
 - **`partial` is not a soft `verified`.** FR-14's media, FR-16's relay and FR-34's push all need either two real
@@ -79,4 +79,6 @@ verified on the strength of "the code looks right".
 - **Cross-cutting evidence** that no single row owns: `tests/unit/a11y.spec.ts` (WCAG 2.1 AA structure on every
   route), `tests/unit/contrast.spec.ts` (measured palette contrast), `tests/unit/links.spec.ts` (navigation
   integrity), `tests/unit/indexes.spec.ts` (every composite query has an index) and
-  `tests/unit/seedIntegrity.spec.ts` (the demo world obeys the product's own rules).
+  `tests/unit/seedIntegrity.spec.ts` (the demo world obeys the product's own rules). `functions/tests/`
+  additionally holds the notification contract (`notifications.spec.ts`) and the two triggers
+  (`triggers.spec.ts`), which run against a real Admin SDK rather than the mock.

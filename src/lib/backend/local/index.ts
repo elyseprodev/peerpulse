@@ -46,6 +46,11 @@ import {
   type UserStatus,
   type Wallet,
 } from '@shared/domain'
+import {
+  accountStatusChangedDraft,
+  roleChangedDraft,
+  tokenGrantDraft,
+} from '@shared/notify'
 import { env } from '../../env'
 import {
   BackendRequestError,
@@ -78,7 +83,7 @@ import {
   type LocalDatabase,
 } from './db'
 import { DEMO_CREDENTIALS, DEMO_PASSWORD, demoAccountEmails, seedLocalDatabase } from './seed'
-import { pushNotification } from './notify'
+import { pushDraft } from './notify'
 import * as sessions from './sessions'
 import * as social from './social'
 
@@ -327,13 +332,7 @@ export class LocalBackend implements PeerPulseBackend {
         createdBy: 'system:signup',
         createdAt: now,
       }
-      pushNotification(db, {
-        uid: uidValue,
-        type: 'token_grant',
-        title: `${grant} welcome Time Tokens added`,
-        body: 'Trade an hour of what you know for an hour of what you want to learn.',
-        link: '/wallet',
-      })
+      pushDraft(db, tokenGrantDraft(uidValue, grant, 'Welcome grant — new members may receive introductory Time Tokens.', { signup: true }))
     }
 
     db.session.uid = uidValue
@@ -483,9 +482,14 @@ export class LocalBackend implements PeerPulseBackend {
     await this.assertAdmin()
     const user = this.store.users[uidValue]
     if (!user) throw new BackendRequestError({ code: 'user/not-found', message: 'Member not found.' })
+    const previousRole = user.role
     user.role = role
     user.updatedAt = new Date().toISOString()
-    persist('db', `users|${uidValue}`)
+    if (previousRole !== role) {
+      const actor = this.sessionFromDb()
+      pushDraft(this.store, roleChangedDraft(uidValue, role, actor?.uid ?? 'a steward'))
+    }
+    persist('db', `users|${uidValue}`, `notifications|${uidValue}`)
     return deepClone(user)
   }
 
@@ -495,7 +499,8 @@ export class LocalBackend implements PeerPulseBackend {
     if (!user) throw new BackendRequestError({ code: 'user/not-found', message: 'Member not found.' })
     user.status = status
     user.updatedAt = new Date().toISOString()
-    persist('db', `users|${uidValue}`)
+    pushDraft(this.store, accountStatusChangedDraft(uidValue, status, ''))
+    persist('db', `users|${uidValue}`, `notifications|${uidValue}`)
     return deepClone(user)
   }
 
@@ -934,14 +939,7 @@ export class LocalBackend implements PeerPulseBackend {
       createdBy: `admin:${admin.uid}`,
       createdAt: now,
     }
-    pushNotification(db, {
-      uid: uidValue,
-      type: 'moderation_action',
-      title: `Balance adjusted by a steward`,
-      body: `${amount >= 0 ? '+' : ''}${amount} Time Token(s). Reason: ${reason || 'not specified'}`,
-      link: '/wallet',
-      priority: 'high',
-    })
+    pushDraft(db, tokenGrantDraft(uidValue, amount, reason))
     persist('db', `wallet|${uidValue}`, `notifications|${uidValue}`)
     return deepClone(wallet)
   }
