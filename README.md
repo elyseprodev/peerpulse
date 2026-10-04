@@ -44,7 +44,7 @@ database through `localStorage`.
 | `npm run dev` | Vite dev server on `0.0.0.0:5173` (local backend) |
 | `npm run build` | Typecheck (`vue-tsc`) then build to `dist/` |
 | `npm run typecheck` | Strict TypeScript check of app, shared and tests |
-| `npm test` | Vitest unit + integration suite (202 tests) |
+| `npm test` | Vitest unit + integration suite (212 tests) |
 | `cd functions && npm test` | Cloud Functions, executed against a real Admin SDK (43 tests) |
 | `npm run test:rules` | Firestore emulator security-rules suite (**needs a JDK**) |
 | `npm run sync:shared` | Mirror `shared/*` into `functions/src/shared/` |
@@ -120,7 +120,7 @@ Honesty is a feature of this repository, so it is stated on the front page:
 
 **Verified in this repository**
 
-- 202 unit/integration tests pass (`npm test`): the token maths and its boundaries, booking conflicts and
+- 212 unit/integration tests pass (`npm test`): the token maths and its boundaries, booking conflicts and
   lifecycle, attendance verification and every settlement outcome, the whole reference backend, the
   accessibility-relevant behaviour of the UI primitives, a route smoke test that mounts the real app and walks
   every route in the table (guards included) asserting that each one renders without a render error, and an
@@ -135,7 +135,10 @@ Honesty is a feature of this repository, so it is stated on the front page:
   client write appears on a token-bearing collection, on an undocumented path, or anywhere an administrator
   was not allowed to write one either (verified by mutation — four deliberately loosened rules, four red
   suites), and an accessibility audit that walks every route checking the
-  machine-checkable parts of WCAG 2.1 AA. The audit found the most serious defect of the project so far:
+  machine-checkable parts of WCAG 2.1 AA, and a palette test that applies the WCAG contrast formula to the
+  actual tokens (it found the light theme's accents measuring 1.7–3.8 : 1 on white — an unreadable light theme —
+  and the primary button's hardcoded label at 4.42 : 1). The audit found the most serious defect of the project
+  so far:
   `AppButton` passed `href: undefined` alongside `to`, which silently removed the href `RouterLink` computes, so
   all 39 link-buttons ("Sign in", "Book a session", …) rendered anchors **no keyboard could reach**. Mouse
   clicks kept working, which is why manual testing never caught it. The WebRTC suite found two more defects: a permission warning that was

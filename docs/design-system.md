@@ -24,6 +24,7 @@ face so balances never jitter.
 | `--color-brand` | `#10B981` | primary actions, balances, positive deltas |
 | `--color-brand-bright` | `#34D399` | accents, focus detail, gradient partner |
 | `--color-brand-deep` | `#059669` | pressed states, light-theme primary |
+| `--color-on-brand` | `#04231A` | text on a solid brand fill (`#FFFFFF` in the light theme) |
 | `--color-cyan` | `#22D3EE` | optional soft accent — secondary charts, links in dark |
 | `--color-muted` | `#A7BBC8` | secondary text, meta, timestamps |
 | `--color-line` | `#1D4553` | borders, dividers, skeletons |
@@ -31,8 +32,12 @@ face so balances never jitter.
 | `--color-danger` | `#F87171` | destructive actions, blocked settlements |
 | `--color-warn` | `#FBBF24` | partial settlements, pending states |
 
-A light theme re-maps the same names (`--color-canvas: #F3F8F7`, `--color-surface: #FFFFFF`,
-`--color-brand: #059669`, `--color-ink: #06121B`), toggled from the shell and remembered per browser.
+A light theme re-maps the same names and is toggled from the shell (remembered per browser). The surface and
+text names swap to light values (`--color-canvas: #F3F8F7`, `--color-surface: #FFFFFF`, `--color-ink: #06121B`),
+and the **accent hues are darkened rather than re-used**: `--color-brand: #047857`, `--color-brand-bright:
+#065F46`, `--color-cyan: #0E7490`, `--color-danger: #B91C1C`, `--color-warn: #92400E`. The dark theme's greens
+measure 2.5–3.8 : 1 on white — they are fills, not text — which is exactly the defect `tests/unit/contrast.spec.ts`
+found. The brand palette the brief specified is the dark theme, and it is unchanged.
 
 **Semantic colour rules.** Green means *value earned or available*, never “success” in the abstract. Amber
 means *partial or pending*, red means *blocked or destructive*, cyan marks *secondary information* only. Colour
@@ -124,8 +129,8 @@ Non-negotiable rules, all exercised in `tests/unit/components.spec.ts`:
 4. **Live regions:** toasts are `aria-live="polite"`; blocking errors use `role="alert"`.
 5. **Icons:** decorative icons are `aria-hidden`; meaningful ones take `label`.
 6. **Reduced motion:** transforms and long transitions are disabled under `prefers-reduced-motion: reduce`.
-7. **Contrast:** body text on canvas is ≥ 7:1; muted text ≥ 4.5:1; the brand green on canvas is ≥ 4.5:1 for
-   text and always paired with a shape or border for non-text use.
+7. **Contrast:** every token used as text reaches ≥ 4.5 : 1 on every page background in both themes, measured —
+   not asserted — by `tests/unit/contrast.spec.ts` (§5.2). Non-text use (rings, borders) clears 3 : 1.
 8. **Media in calls:** camera/mic controls are buttons with `aria-pressed`, and the connection state is
    announced in a polite live region so a screen-reader user knows when the peer connects.
 
@@ -154,6 +159,45 @@ of writing it, and each one is a mistake that is invisible in a screenshot:
    card: 275 unnamed buttons on the marketplace alone, announced as "button, dimmed" five times per listing.
    Read-only ratings render as `aria-hidden` spans inside a labelled `role="img"`, and only the interactive
    variant uses real radio buttons.
+
+### 5.2 Contrast, measured
+
+`tests/unit/contrast.spec.ts` parses the palette out of `src/assets/styles/main.css`, derives which tokens the
+application actually uses as *text* (by scanning `src/` for `text-<token>` classes), and applies WCAG 2.1's
+contrast formula to each one against every page background, in both themes. Measured values:
+
+| Pair | Dark theme | Light theme |
+| --- | --- | --- |
+| `ink` on `canvas` | 18.45 : 1 | 17.64 : 1 |
+| `ink` on `surface` | 16.83 : 1 | 18.92 : 1 |
+| `muted` on `canvas` | 9.30 : 1 | 5.34 : 1 |
+| `muted` on `surface` | 8.48 : 1 | 5.73 : 1 |
+| `muted` on `surface-2` | 7.68 : 1 | 5.18 : 1 |
+| `brand` on `canvas` | 7.27 : 1 | 5.11 : 1 |
+| `brand` on `surface` | 6.63 : 1 | 5.48 : 1 |
+| `brand-bright` on `canvas` | 9.60 : 1 | 7.16 : 1 |
+| `brand-bright` on `surface` | 8.75 : 1 | 7.68 : 1 |
+| `cyan` on `canvas` | 10.21 : 1 | 5.00 : 1 |
+| `danger` on `canvas` | 6.67 : 1 | 6.03 : 1 |
+| `danger` on `surface` | 6.08 : 1 | 6.47 : 1 |
+| `warn` on `canvas` | 11.05 : 1 | 6.61 : 1 |
+| `warn` on `surface` | 10.08 : 1 | 7.09 : 1 |
+| `on-brand` on `brand` (button labels) | 6.57 : 1 | 5.48 : 1 |
+
+**What it found.** The light theme originally re-used the dark theme's accent hexes. On white that measured
+`brand-bright` 2.54 : 1, `cyan` 1.81 : 1, `warn` 1.67 : 1, `danger` 2.77 : 1 — a light theme in which links,
+warnings and errors were unreadable, and the primary button's label (a hardcoded `#04231A`) sat at 4.42 : 1.
+The accent hues are now darkened for light surfaces, and the button label is the `--color-on-brand` token so it
+can differ per theme.
+
+**The one deliberate exception.** `--color-line` is never used for text that carries meaning. It draws borders
+and dividers *and* two decorative elements — the unfilled stars in a rating and the step numerals on
+`/community-guidelines` — both of which are `aria-hidden` and repeat information that is present in words
+immediately beside them. The test lists this exemption explicitly rather than tolerating a low ratio silently.
+
+**What it cannot see.** The rendered background behind a given element (a card can sit on a gradient or a
+translucent overlay), font size — so nothing gets the 3 : 1 large-text allowance — and opacity modifiers such as
+`text-muted/70`, whose effective colour depends on what is behind them.
 
 ---
 

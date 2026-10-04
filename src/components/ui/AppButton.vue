@@ -24,7 +24,7 @@ const props = withDefaults(
 
 const VARIANTS: Record<Variant, string> = {
   primary:
-    'bg-brand text-[#04231a] hover:bg-brand-bright active:bg-brand-deep shadow-[0_10px_30px_-12px_rgba(16,185,129,0.75)] font-semibold',
+    'bg-brand text-on-brand hover:bg-brand-bright active:bg-brand-deep shadow-[0_10px_30px_-12px_rgba(16,185,129,0.75)] font-semibold',
   secondary: 'bg-surface-2 text-ink border border-line hover:border-brand/60 hover:bg-surface-2/70',
   soft: 'bg-brand/12 text-brand-bright border border-brand/25 hover:bg-brand/20',
   ghost: 'text-muted hover:text-ink hover:bg-white/5',

@@ -13,6 +13,7 @@
   --color-brand: #10b981; /* primary green        */
   --color-brand-bright: #34d399; /* bright accent green  */
   --color-brand-deep: #059669;
+  --color-on-brand: #04231a; /* text on a solid brand fill */
   --color-cyan: #22d3ee; /* optional soft accent */
   --color-muted: #a7bbc8; /* secondary text       */
   --color-line: #1d4553; /* borders              */
@@ -45,11 +46,21 @@ html.light {
   --color-canvas: #f3f8f7;
   --color-surface: #ffffff;
   --color-surface-2: #eef5f4;
-  --color-brand: #059669;
-  --color-brand-bright: #10b981;
+  /* The accent hues are darkened for light surfaces. The dark theme's
+     #10b981/#34d399 measure 2.5–3.8 : 1 on white — fine as fills, unreadable as
+     text — so the light theme uses the 700/800 steps of the same ramps. */
+  --color-brand: #047857; /* 5.5 : 1 on white */
+  --color-brand-bright: #065f46; /* 7.7 : 1 — the accent text colour here */
+  --color-brand-deep: #065f46;
+  --color-on-brand: #ffffff; /* 5.5 : 1 on the brand fill above */
+  --color-cyan: #0e7490; /* 5.4 : 1 */
   --color-muted: #4a6b78;
   --color-line: #cfe3e2;
   --color-ink: #06121b;
+  --color-danger: #b91c1c; /* 6.5 : 1 */
+  --color-danger-deep: #991b1b;
+  --color-warn: #92400e; /* 7.1 : 1 */
+  --color-warn-deep: #78350f;
   color-scheme: light;
 }
 

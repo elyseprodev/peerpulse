@@ -66,7 +66,7 @@ const ENFORCEMENT = [
       <SectionHeading eyebrow="Moderation" title="What happens when a rule is broken" />
       <ol class="mt-8 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <li v-for="item in ENFORCEMENT" :key="item.step" class="pp-card p-5">
-          <span class="font-display text-2xl font-bold text-line">{{ item.step }}</span>
+          <span aria-hidden="true" class="font-display text-2xl font-bold text-line">{{ item.step }}</span>
           <h3 class="font-display mt-2 text-sm font-semibold text-ink">{{ item.title }}</h3>
           <p class="mt-1.5 text-xs leading-relaxed text-muted">{{ item.body }}</p>
         </li>

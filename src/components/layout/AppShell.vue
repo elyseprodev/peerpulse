@@ -84,7 +84,7 @@ async function signOut(): Promise<void> {
   <div class="flex min-h-dvh flex-col">
     <a
       href="#main"
-      class="sr-only focus:not-sr-only focus:absolute focus:top-3 focus:left-3 focus:z-100 focus:rounded-xl focus:bg-brand focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-[#04231a]"
+      class="sr-only focus:not-sr-only focus:absolute focus:top-3 focus:left-3 focus:z-100 focus:rounded-xl focus:bg-brand focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-on-brand"
     >
       Skip to content
     </a>
@@ -165,7 +165,7 @@ async function signOut(): Promise<void> {
               <AppIcon name="bell" :size="18" />
               <span
                 v-if="unread"
-                class="absolute top-1 right-1 grid min-w-4 place-items-center rounded-full bg-brand px-1 text-[10px] font-bold text-[#04231a]"
+                class="absolute top-1 right-1 grid min-w-4 place-items-center rounded-full bg-brand px-1 text-[10px] font-bold text-on-brand"
               >
                 {{ unread > 9 ? '9+' : unread }}
               </span>
