@@ -15,6 +15,8 @@
  *     act at all without the claim;
  *   • the export surface matches the names the browser adapter calls.
  */
+import { existsSync, readFileSync } from 'node:fs'
+import path from 'node:path'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import {
   ADMIN,
@@ -27,7 +29,6 @@ import {
   forceInProgress,
   ledger,
   notificationsFor,
-  openRoomFor,
   readBooking,
   readWallet,
   seedAttendance,
@@ -498,9 +499,11 @@ describe('healthcheck and the export surface', () => {
 
     // The browser adapter names the functions it calls in `CALLABLE`; read that
     // map from the client source so a rename on either side fails here.
-    const clientSource = await import('node:fs').then((fs) =>
-      fs.readFileSync(new URL('../../src/lib/backend/firebase/index.ts', import.meta.url), 'utf8'),
-    )
+    // Vitest runs with the package root as cwd; `import.meta` is unavailable
+    // because the functions project compiles to CommonJS.
+    const clientAdapter = path.resolve(process.cwd(), '../src/lib/backend/firebase/index.ts')
+    expect(existsSync(clientAdapter), 'the client adapter must exist to compare against').toBe(true)
+    const clientSource = readFileSync(clientAdapter, 'utf8')
     const mapBody = clientSource.slice(clientSource.indexOf('export const CALLABLE'))
     const clientNames = [...mapBody.matchAll(/^\s{2}(\w+):\s*'/gm)].map((match) => match[1])
     expect(clientNames.length).toBeGreaterThan(10)

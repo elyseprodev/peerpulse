@@ -69,7 +69,11 @@ peerpulse/
 │
 ├── tests/
 │   ├── unit/                      112 tests: policy, booking, settlement, reference backend, components, routes
-│   └── rules/                     Firestore emulator suite (needs a JDK)
+│   └── rules/                     Firestore emulator suite (needs a JDK + the emulator jar)
+
+functions/tests/                   31 tests: the callables executed against a real Admin SDK
+functions/vitest.config.ts         single fork — every file shares one in-memory Firestore
+functions/tsconfig.test.json       type-checks src + tests without emitting
 │
 └── docs/                          the eleven briefed deliverables
 ```

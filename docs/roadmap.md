@@ -55,7 +55,7 @@
 | **Objective** | Members can publish skills, find each other and agree a session — without any tokens moving yet. |
 | **Deliverables** | Listings CRUD + explore/detail pages; booking request modal; confirm/decline/cancel/reschedule functions; bookings list; availability editor. |
 | **Acceptance criteria** | A request schedules nothing and moves nothing (wallet unchanged, ledger empty); a teacher can confirm and the room document appears; a request outside 15–180 min, under 2 h notice, over 60 days ahead, conflicting with either member's calendar, or unaffordable is refused with a specific code; cancelling ≥ 24 h ahead refunds 100 % and the ledger row explains why. |
-| **Status** | 🟡 implemented end to end against the reference backend (`src/lib/backend/local/sessions.ts`, `functions/src/bookings.ts`, `BookingsPage`, `BookingRequestModal`, `AvailabilityEditor`). Server-side rejection codes are asserted in `tests/unit/localBackend.spec.ts`; the Cloud Functions paths are unrun. |
+| **Status** | 🟡 implemented end to end against the reference backend (`src/lib/backend/local/sessions.ts`, `functions/src/bookings.ts`, `BookingsPage`, `BookingRequestModal`, `AvailabilityEditor`), and the Cloud Functions paths now have runtime coverage (`functions/tests`, 31 tests). The booking tests are what found the read-after-write bug in `respondToBooking` — every confirmation would have failed on real Firestore. |
 
 ### Week 5 — Live sessions (WebRTC)
 
@@ -64,7 +64,7 @@
 | **Objective** | Two members can hold a real audio/video session with verified attendance. |
 | **Deliverables** | `useWebRTC` composable; video room page; Firestore signalling rules; `getTurnCredentials` function and coturn config; `docs/webrtc-signaling.md`. |
 | **Acceptance criteria** | Two browsers connect and reconnect after a reload; media never transits Firestore; a third account cannot read the room, its presence or its signalling (rules test); camera-denied still yields a usable room; presence heartbeat writes attendance segments; join is disabled > 15 min before the start; TURN credentials for two different callers differ and expire. |
-| **Status** | 🟡 implemented (`useWebRTC.ts`, `VideoRoomPage.vue`, `functions/src/rooms.ts`, rules spec). Two-tab verification on the local backend is the manual test in `docs/webrtc-signaling.md` §12; TURN minting needs a deployed function to be exercised. |
+| **Status** | 🟡 implemented (`useWebRTC.ts`, `VideoRoomPage.vue`, `functions/src/rooms.ts`, rules spec). Two-tab verification on the local backend is the manual test in `docs/webrtc-signaling.md` §12; the join-window and TURN-credential logic of `openRoom`/`getTurnCredentials` is asserted in `functions/tests`. Real media still needs two browsers. |
 
 ### Week 6 — Settlement engine
 
@@ -73,7 +73,7 @@
 | **Objective** | Tokens move exactly once, transparently, and only when a session demonstrably happened. |
 | **Deliverables** | Settlement planner + ledger builders (already in `shared/settlement.ts`); `endSession`, `confirmCompletion`, `settleSession`, `hourlySettlementSweep`; wallet and ledger UI; blocked/partial/refund surfacing. |
 | **Acceptance criteria** | Debit equals credit for every settlement; a second call is a no-op with a notice; attendance below the quorum blocks with `insufficient_verified_attendance`; a learner who can only cover part settles partially, floored to the increment, and the remainder is waived; a missing wallet does not crash the sweep; the sweep touches only `in_progress` bookings older than 24 h; the ledger row shows reason, policy code and resulting balance. |
-| **Status** | 🟡 implemented and unit-tested at the planner level (`tests/unit/settlement.spec.ts`); the transactional write path exists in `functions/src/lib/settlement.ts` and is unrun. |
+| **Status** | 🟡 implemented, unit-tested at the planner level (`tests/unit/settlement.spec.ts`) and integration-tested through the real transaction (`functions/tests`): one balanced pair of rows, deterministic ids, replay is a no-op, missing attendance blocks, partial settlement floors correctly. Still unrun against **real** Firestore (the mock is single-threaded). |
 
 ### Week 7 — Community, moderation and dispute paths
 
@@ -82,7 +82,7 @@
 | **Objective** | The human systems around exchange: communities, reviews, reports, disputes and administrator tooling. |
 | **Deliverables** | Communities/posts/comments; reviews with replies; report flow; `resolveReport`; `resolveDispute`; the seven-tab admin dashboard; notifications. |
 | **Acceptance criteria** | Reactions can only edit the caller's own key (rules test); a review is impossible without a completed booking and one per member per session; a steward can hide upheld content; a dispute can refund the learner, refund half, release the settlement or close with no movement, and every outcome notifies both members with the steward's reason; an administrator **cannot** write a wallet directly. |
-| **Status** | 🟡 implemented (pages, stores, `functions/src/social.ts`, `functions/src/admin.ts`); rules assertions written, community and moderation flows exercised on the reference backend. |
+| **Status** | 🟡 implemented (pages, stores, `functions/src/social.ts`, `functions/src/admin.ts`); community and moderation flows exercised on the reference backend, and the steward-only paths (adjust with a reason, policy validation and diff, role changes, metrics) are integration-tested. `resolveDispute` had the same read-after-write bug as `respondToBooking` and is fixed. |
 
 ### Week 8 — Hardening, deployment, documentation
 
@@ -112,8 +112,8 @@
 
 | Item | Why it cannot be verified here |
 | --- | --- |
-| Firestore emulator rules suite | Needs a JDK; the sandbox has none. Run `npm run test:rules`. |
-| Cloud Functions behaviour | Never executed; needs an emulator, a deploy, or a unit harness with a Firestore double. |
+| Firestore emulator rules suite | Java is now available, but the sandbox's network allow-list blocks the emulator jar (storage.googleapis.com and GitHub release assets). Run `npm run test:rules` on any machine with internet access. |
+| Cloud Functions against real Firestore | Exercised against the `firebase-mocker` implementation of the Firestore gRPC API (31 tests), not against Google's emulator: transaction conflict detection and rules enforcement are outside that harness. |
 | App Check, FCM push | Require a real Firebase project and site key / VAPID key. |
 | TURN relay path | Requires a coturn host and the two functions secrets. |
 | Email delivery, password reset | Requires Firebase Auth's hosted flow. |

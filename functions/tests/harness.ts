@@ -20,7 +20,6 @@
  */
 import { firebaseMocker } from 'firebase-mocker'
 import type { Firestore } from 'firebase-admin/firestore'
-import type { App } from 'firebase-admin/app'
 
 export const PROJECT_ID = 'peerpulse-functions-test'
 export const FIRESTORE_PORT = 3333
@@ -55,6 +54,16 @@ interface CallableLike {
   run: (request: { auth?: { uid: string; token: Record<string, unknown> } | null; data: unknown }) => Promise<unknown>
 }
 
+/**
+ * `firebase-functions` types each endpoint's request precisely, and those types
+ * are not mutually assignable, so one helper cannot drive them all. The harness
+ * erases the per-endpoint request type on purpose — this is test scaffolding,
+ * not product code, and `call()` below still builds a realistic request.
+ */
+function asCallable(value: unknown): CallableLike {
+  return value as unknown as CallableLike
+}
+
 interface CallOptions {
   /** uid of the caller; omit for an unauthenticated call. */
   as?: string
@@ -86,14 +95,12 @@ export async function startHarness(): Promise<void> {
 
   world.admin = admin
   world.db = admin.firestore()
-  world.fns = {
-    ...bookings,
-    ...rooms,
-    ...social,
-    ...adminFns,
-    healthcheck: (index as unknown as Record<string, CallableLike>).healthcheck,
-    bootstrapPlatform: (index as unknown as Record<string, CallableLike>).bootstrapPlatform,
-  } as Record<string, CallableLike>
+  const endpoints: Record<string, unknown> = { ...bookings, ...rooms, ...social, ...adminFns, ...index }
+  world.fns = Object.fromEntries(
+    Object.entries(endpoints)
+      .filter(([, value]) => typeof value === 'function')
+      .map(([name, value]) => [name, asCallable(value)]),
+  )
 }
 
 export async function stopHarness(): Promise<void> {

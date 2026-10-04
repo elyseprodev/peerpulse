@@ -191,7 +191,13 @@ outsider, administrator and guest — and asserts, among others:
 - reports and disputes can only be filed as yourself and never pre-resolved;
 - unmatched paths are denied by default.
 
-Run them with:
+Independent of the rules, the **server-side authorization checks inside the callables** are now exercised
+for real: `functions/tests` runs the actual functions against a real `firebase-admin` SDK (31 tests) and
+asserts that an unauthenticated caller, a suspended member, an outsider, a non-participant and a member without
+the admin claim are each refused; that a wallet cannot be adjusted without a written reason; and that the
+policy rejects invalid values. That suite runs with `cd functions && npm test`.
+
+Run the rules tests with:
 
 ```bash
 npm ci

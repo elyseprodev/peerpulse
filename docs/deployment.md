@@ -273,9 +273,12 @@ costs at pilot scale are Firestore reads on list pages and the TURN server's ban
 ## 9. Known gaps to close before a wide rollout
 
 1. **Move the TURN secret to Secret Manager** (`defineSecret`) instead of a plain environment variable.
-2. **Run the rules suite** in CI on a machine with a JDK, and require it to pass before deploying rules.
-3. **Add functions tests** with a Firestore double (or emulator-backed integration tests) — the callables are
-   still only type-checked, never executed.
+2. **Run the rules suite** in CI on a machine with a JDK, and require it to pass before deploying rules
+   (`npm run test:rules`; it needs to download the emulator jar, so it cannot run in a locked-down sandbox).
+3. **Run the functions suite in CI** (`cd functions && npm test`, 31 tests, no JDK or network needed) and
+   extend it as features land. It covers the token paths but not Security Rules, and its mock commits
+   transactions single-threaded — add a staging test with two concurrent settlements before trusting the
+   concurrency story.
 4. **Alerting**: an error-rate alert on the functions and a daily reconciliation job that asserts
    `sum(credits) == sum(debits)` per booking, so a settlement bug is loud rather than silent.
 5. **Backups**: schedule Firestore exports (the ledger is the platform's book of record).

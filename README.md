@@ -45,6 +45,7 @@ database through `localStorage`.
 | `npm run build` | Typecheck (`vue-tsc`) then build to `dist/` |
 | `npm run typecheck` | Strict TypeScript check of app, shared and tests |
 | `npm test` | Vitest unit + integration suite (112 tests) |
+| `cd functions && npm test` | Cloud Functions, executed against a real Admin SDK (31 tests) |
 | `npm run test:rules` | Firestore emulator security-rules suite (**needs a JDK**) |
 | `npm run sync:shared` | Mirror `shared/*` into `functions/src/shared/` |
 | `npm run check:shared` | Fail if those copies have drifted |
@@ -123,17 +124,28 @@ Honesty is a feature of this repository, so it is stated on the front page:
   lifecycle, attendance verification and every settlement outcome, the whole reference backend, the
   accessibility-relevant behaviour of the UI primitives, and a route smoke test that mounts the real app and
   walks every route in the table (guards included) asserting that each one renders without a render error.
-- `npm run typecheck` and `npm run build` pass; the Cloud Functions project compiles clean with `tsc`.
+- 31 Cloud Functions tests pass (`cd functions && npm test`). The real callables run unmodified against a real
+  `firebase-admin` SDK (Firestore gRPC + Identity Toolkit, via `firebase-mocker`), and they assert the product's
+  promises: a request moves no tokens; only the teacher may confirm; outsiders are refused everywhere; a
+  settlement debits exactly what it credits, once, with deterministic ids and an auditable row; missing
+  attendance blocks instead of settling; a partial settlement keeps the ledger balanced; and an administrator
+  cannot move a token without a written reason. **These tests found three real defects**, including
+  `respondToBooking` reading documents after writing inside its transaction — which would have failed every
+  confirmation, and therefore every session and settlement, on real Firestore.
+- `npm run typecheck`, `npm run build` and the functions' `tsc` all pass.
 - The product runs end to end in local mode, including a two-tab WebRTC session.
 
 **Not verified here (do not claim otherwise)**
 
 - `tests/rules/firestore.rules.spec.ts` — written and reviewed line by line against `firestore.rules`, but
-  **never executed**: the Firestore emulator needs a JDK, which this build environment did not have. Run
-  `npm run test:rules` somewhere with Java before trusting it.
-- The Cloud Functions have never run against a real Firestore (no emulator, no deploy). They compile, and they
-  import the same tested `shared/*` modules, but runtime behaviour — including error-code parity with the
-  reference backend — is unproven.
+  **never executed**. Java is available in the build environment (Temurin 25), and the CLI gets as far as
+  downloading the emulator, but the sandbox's network allow-list blocks the artifact itself
+  (`storage.googleapis.com`, and every alternative route was checked). On a normal machine
+  `npm run test:rules` will fetch `cloud-firestore-emulator-v1.19.8.jar` and run these tests unchanged.
+- The Cloud Functions have never touched **real** Firestore: the harness is a Node implementation of the
+  Firestore API with single-threaded (Level 1) transactions, so rules enforcement and multi-writer conflict
+  detection are outside it. Deploy to a staging project and walk `docs/testing.md` §6 before trusting
+  concurrency.
 - App Check, FCM push, email flows and the TURN relay path all require a real project; `docs/deployment.md` has
   the steps and the checklist.
 

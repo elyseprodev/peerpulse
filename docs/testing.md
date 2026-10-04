@@ -16,6 +16,9 @@ npm test                    # vitest, jsdom, tests/unit/**  → 112 tests
 npm run build               # production build to dist/
 npm run dev                 # local mode at http://localhost:5173 (binds 0.0.0.0)
 
+cd functions && npm test    # Cloud Functions, executed for real → 31 tests
+cd functions && npm run typecheck   # tsc over src + tests
+
 npm run sync:shared         # mirror shared/* into functions/src/shared
 npm run check:shared        # fail if the copies drift
 
@@ -44,7 +47,32 @@ touches Firebase or the network.
 
 ---
 
-## 3. Rules suite (written, **not yet executed**)
+## 3. Cloud Functions suite (31 tests, executed against a real Admin SDK)
+
+`functions/tests/functions.spec.ts` runs the **actual callables** — the real
+`firebase-admin` SDK talking to `firebase-mocker`, a Node implementation of the
+Firestore gRPC service and the Identity Toolkit REST API. The functions run
+unmodified: `getFirestore()`, `Timestamp`s, `array-contains` queries,
+subcollections and `runTransaction` all go through the SDK. See
+`functions/tests/harness.ts` for the exact boundaries of that claim.
+
+| Block | Proves |
+| --- | --- |
+| createBooking | unauthenticated and suspended callers are refused; you cannot book your own listing; a 200-minute session, a 10-minute-notice start, a conflicting slot and an unaffordable session are each refused with their own code; **a created request moves no tokens at all** — ledger empty, both wallets unchanged — and notifies the teacher |
+| respondToBooking | an outsider and the learner-cannot-confirm are refused; the teacher's confirmation flips the booking to `confirmed`, creates the room document and notifies the learner; a second confirmation is refused |
+| rooms | `openRoom({bookingId})` provisions the room and does not let anyone in early; `openRoom({roomId})` inside the window marks the session in progress; an outsider cannot end a session; TURN credentials are STUN-only without configuration and HMAC-derived (`<expiry>:<uid>`) with it |
+| settlement | one verified session debits exactly what it credits, with deterministic ids (`tx_{id}_debit`/`_credit`), the acting uid, the policy code and the resulting balance; **a replay moves nothing and does not bump `attempts`**; no attendance blocks instead of settling and writes no ledger row; an outsider cannot settle; a learner who can only cover part settles partially with the ledger still balanced |
+| reviews and disputes | a review is refused for a session that never happened and refused to a non-participant; a dispute cannot be resolved without the steward claim |
+| administration | every administrative call is refused without the claim; a wallet adjustment without a written reason is refused; with one it changes the balance and writes an `admin_adjustment` row naming the steward; an overdraft is refused; the policy rejects invalid values and stores a readable diff with the changer's uid; a member can be promoted only by a steward; metrics reach a steward |
+| healthcheck & exports | the healthcheck reports the seeded policy; every name in the **client's** `CALLABLE` map exists as an exported function (the test reads the map out of the client source, so a rename on either side fails here) |
+
+What this suite does **not** cover: Security Rules (they are enforced by
+Firestore, not by the functions), and Firestore's multi-writer transaction
+conflict detection — the mock commits atomically but is single-threaded, so it
+cannot exercise two concurrent settlements racing. That race is instead made
+impossible by construction (deterministic document ids inside one transaction).
+
+## 4. Rules suite (written, **not yet executed**)
 
 `tests/rules/firestore.rules.spec.ts` runs against the Firestore emulator and encodes the product's central
 claim. Ten describe blocks, five identities (teacher, learner, outsider, administrator, guest):
@@ -67,10 +95,17 @@ npm run test:rules
 # → firebase emulators:exec --only firestore "vitest run --config vitest.rules.config.ts"
 ```
 
-> **Status: not run.** The emulator is a JVM application and no JDK was available in the environment where this
-> project was built, so these tests are *written and reviewed against the rules file line by line* but are not
-> passing evidence. Treat the first executed run as a real milestone: fixtures and rules are both plausible
-> places for a first red test.
+> **Status: not run — and the reason is now narrower than before.** A JDK is available (Temurin 25 via the
+> `jdk4py` wheel), `java -version` works, and the CLI gets as far as downloading the emulator. The build
+> sandbox's network allow-list then blocks the artifact itself: `storage.googleapis.com` (where the CLI fetches
+> `cloud-firestore-emulator-v1.19.8.jar`) returns nothing, and every alternative route was checked and refused —
+> GitHub release assets resolve to `release-assets.githubusercontent.com`, which is blocked; no npm, PyPI or
+> Docker image ships the jar; and no copy exists on the filesystem. On a normal machine with internet access
+> `npm run test:rules` will fetch the jar and run these tests unchanged.
+>
+> So these tests are *written and reviewed line by line against the rules file* but are still not passing
+> evidence. Treat the first executed run as a real milestone: fixtures and rules are both plausible places for
+> a first red test.
 
 Static verification that was done instead: read `firestore.rules` against `src/lib/backend/firebase/index.ts`
 and `local/sessions.ts` to confirm that every write the client actually performs is permitted, and that nothing
@@ -80,11 +115,12 @@ settlement read rule, and guest access to the policy) — recorded in the commit
 
 ---
 
-## 4. Not automated (and why)
+## 5. Not automated (and why)
 
 | Area | Reason | Manual substitute |
 | --- | --- | --- |
-| Cloud Functions behaviour | No emulator run available; the functions import the same tested `shared/*` modules the unit suite covers | Deploy to a staging project and walk §5 |
+| Firestore Security Rules | The emulator jar cannot be downloaded in this sandbox (see §4); rules only exist inside Firestore | `firebase emulators:start` locally, then attempt the forbidden writes from the console |
+| Multi-writer transaction conflicts | The mock commits atomically but is single-threaded | Deterministic ids make a duplicate settlement impossible by construction; confirm on staging with two concurrent calls |
 | WebRTC media | Requires two real browsers with cameras | The two-tab script in `docs/webrtc-signaling.md` §12 (works in local mode) |
 | TURN relay | Requires a coturn host | Verify `getTurnCredentials` returns a credential whose HMAC matches the secret, then force a relay-only call |
 | FCM push, App Check | Require a real project, VAPID key and reCAPTCHA site key | Deploy and confirm tokens are attested and notifications arrive |
@@ -93,7 +129,7 @@ settlement read rule, and guest access to the policy) — recorded in the commit
 
 ---
 
-## 5. Manual QA: the end-to-end walkthrough (local mode)
+## 6. Manual QA: the end-to-end walkthrough (local mode)
 
 ```bash
 npm ci && npm run dev        # http://localhost:5173
@@ -149,7 +185,7 @@ Every seeded member shares the password, so two tabs can be two different people
 
 ---
 
-## 6. What “done” means for a change
+## 7. What “done” means for a change
 
 1. `npm run typecheck` passes.
 2. `npm test` passes (and new rules have new tests).
