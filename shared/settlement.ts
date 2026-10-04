@@ -516,10 +516,19 @@ export interface CounterWrite<T> {
 }
 
 /**
- * Adds one settled session to a member's stats, from that member's side. Hours
- * round to one decimal (like every hour figure in the fixtures) and tokens go
- * through `roundTokens`; the amounts are the plan's credit and debit, which is
- * what the learner was actually charged when a settlement rounds down.
+ * Adds one settled session to a member's stats, from that member's side.
+ *
+ * The amounts are the plan's credit and debit — what the learner was actually
+ * charged when a settlement rounds down — not the nominal value of the session.
+ *
+ * Hours accumulate at full floating-point precision and are formatted for
+ * display (`formatHours`); the token amounts — which *are* the ledger — stay
+ * rounded to four decimals. Rounding each session to a tenth of an hour first,
+ * as this used to, drifts visibly: eight fifty-minute sessions are 6.67 hours,
+ * but 8 × 0.8 reports 6.4 — half an hour of teaching lost to arithmetic. A
+ * rounded-to-four-decimals total would still drift by 0.0003 hours over the same
+ * eight sessions, which is the kind of error a member would eventually notice in
+ * a bank of hours, so the hours are left alone and only the money is rounded.
  */
 export function statsAfterSettlement(
   stats: UserStats,
@@ -527,19 +536,19 @@ export function statsAfterSettlement(
   durationMinutes: number,
   amounts: { creditAmount: number; debitAmount: number },
 ): UserStats {
-  const hours = Math.round((durationMinutes / 60) * 10) / 10
+  const hours = durationMinutes / 60
   return side === 'teacher'
     ? {
         ...stats,
         sessionsCompleted: stats.sessionsCompleted + 1,
         sessionsTaught: stats.sessionsTaught + 1,
-        teachingHours: roundTokens(stats.teachingHours + hours),
+        teachingHours: stats.teachingHours + hours,
         tokensEarned: roundTokens(stats.tokensEarned + amounts.creditAmount),
       }
     : {
         ...stats,
         sessionsCompleted: stats.sessionsCompleted + 1,
-        learningHours: roundTokens(stats.learningHours + hours),
+        learningHours: stats.learningHours + hours,
         tokensSpent: roundTokens(stats.tokensSpent + amounts.debitAmount),
       }
 }

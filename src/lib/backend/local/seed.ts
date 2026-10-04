@@ -8,7 +8,19 @@
  * when `VITE_BACKEND_MODE=firebase`; a real deployment starts empty and grows
  * from real signups.
  */
-import { DEFAULT_PLATFORM_CONFIG, buildSettlementWrites, computeTokenAmount, mergeWindows, signupGrantAmount } from '@shared'
+import {
+  DEFAULT_PLATFORM_CONFIG,
+  buildSettlementWrites,
+  computeTokenAmount,
+  listingAfterBooking,
+  listingAfterReview,
+  listingAfterSettlement,
+  mergeWindows,
+  roundTokens,
+  signupGrantAmount,
+  statsAfterReview,
+  statsAfterSettlement,
+} from '@shared'
 import {
 
   type AppNotification,
@@ -734,15 +746,6 @@ export function seedLocalDatabase(db: LocalDatabase): SeedResult {
       updatedAt: settledAt,
     }
 
-    // Stats + reviews
-    teacher.stats.sessionsCompleted += 1
-    teacher.stats.sessionsTaught += 1
-    teacher.stats.teachingHours += Math.round(spec.durationMinutes / 60 * 10) / 10
-    teacher.stats.tokensEarned += tokenAmount
-    learner.stats.sessionsCompleted += 1
-    learner.stats.learningHours += Math.round(spec.durationMinutes / 60 * 10) / 10
-    learner.stats.tokensSpent += tokenAmount
-
     if (spec.review) {
       const reviewId = `rev_${spec.id}`
       const authorUid = spec.review.subject === 'teacher' ? spec.learnerUid : spec.teacherUid
@@ -763,13 +766,6 @@ export function seedLocalDatabase(db: LocalDatabase): SeedResult {
         createdAt: iso(new Date(end.getTime() + 40 * 60_000)),
       }
       db.reviews[reviewId] = review
-      const subject = db.users[subjectUid]
-      subject.stats.ratingSum += review.rating
-      subject.stats.reviewCount += 1
-      skill.ratingSum += review.rating
-      skill.reviewCount += 1
-      skill.completedCount += 1
-      skill.bookingCount += 1
     }
   }
 
@@ -1178,10 +1174,90 @@ export function seedLocalDatabase(db: LocalDatabase): SeedResult {
     updatedAt: iso(new Date(now.getTime() - 4 * DAY)),
   }
 
+  recomputeDerivedCounters(db)
   db.seededAt = iso(now)
   verifySeedIntegrity(db)
 
   return { config, memberCount: MEMBERS.length }
+}
+
+/**
+ * Derive every denormalised counter from the facts, once the world exists.
+ *
+ * The seed creates bookings, settlements, ledger rows and reviews; the counters
+ * they imply (listing scores, completed-session counts, each member's hours and
+ * token totals) are then computed here from the data itself, through the same
+ * shared helpers the settlement engine and the Cloud Functions use.
+ *
+ * Two reasons it is derived rather than incremented at creation time. First, the
+ * increments are easy to get subtly wrong — a booking created in one branch and
+ * cancelled in another, a review about the teacher versus about the learner — and
+ * this file has been wrong in exactly those ways before. Second, the totals must
+ * equal what the ledger and the bookings say, because that is the promise the
+ * product makes: every number on screen is auditable. `tests/unit/seedIntegrity.spec.ts`
+ * re-derives all of them independently and fails if this pass and the data ever
+ * disagree.
+ */
+export function recomputeDerivedCounters(db: LocalDatabase): void {
+  const bookings = Object.values(db.bookings)
+  const reviews = Object.values(db.reviews)
+
+  for (const listing of Object.values(db.skills)) {
+    const mine = bookings.filter((booking) => booking.skillId === listing.id)
+    const settled = mine.filter((booking) => ['settled', 'partial'].includes(booking.settlement.state))
+    const about = reviews.filter((review) => review.skillId === listing.id && review.subjectUid === listing.ownerUid)
+
+    listing.bookingCount = mine.reduce((count) => listingAfterBooking({ bookingCount: count }).bookingCount, 0)
+    listing.completedCount = settled.reduce((count) => listingAfterSettlement({ completedCount: count }).completedCount, 0)
+    listing.reviewCount = about.reduce((count) => listingAfterReview({ ratingSum: 0, reviewCount: count }, 0).reviewCount, 0)
+    listing.ratingSum = roundTokens(about.reduce((sum, review) => sum + review.rating, 0))
+  }
+
+  for (const profile of Object.values(db.users)) {
+    const empty = {
+      sessionsCompleted: 0,
+      sessionsTaught: 0,
+      teachingHours: 0,
+      learningHours: 0,
+      ratingSum: 0,
+      reviewCount: 0,
+      tokensEarned: 0,
+      tokensSpent: 0,
+    }
+    let stats = empty
+
+    // Sessions, hours and token totals from the settled bookings, taking the
+    // amounts the ledger actually moved rather than the session's nominal worth.
+    for (const booking of bookings) {
+      if (!['settled', 'partial'].includes(booking.settlement.state)) continue
+      const balance = db.transactions[`tx_${booking.id}_debit`]
+      const amounts = {
+        creditAmount: db.transactions[`tx_${booking.id}_credit`]?.amount ?? balance?.amount ?? 0,
+        debitAmount: balance?.amount ?? 0,
+      }
+      if (booking.teacherUid === profile.uid) {
+        stats = statsAfterSettlement(stats, 'teacher', booking.durationMinutes, amounts)
+      }
+      if (booking.learnerUid === profile.uid) {
+        stats = statsAfterSettlement(stats, 'learner', booking.durationMinutes, amounts)
+      }
+    }
+
+    // Ratings from the reviews about this member.
+    for (const review of reviews.filter((r) => r.subjectUid === profile.uid)) {
+      stats = statsAfterReview(stats, review.rating)
+    }
+
+    // Token totals come from the ledger itself, so the profile and the wallet
+    // can never tell different stories about the same member.
+    const rows = Object.values(db.transactions).filter((row) => row.uid === profile.uid && row.status === 'posted')
+    stats.tokensEarned = roundTokens(
+      rows.filter((row) => row.direction === 'credit' && row.type !== 'signup_grant').reduce((sum, row) => sum + row.amount, 0),
+    )
+    stats.tokensSpent = roundTokens(rows.filter((row) => row.direction === 'debit').reduce((sum, row) => sum + row.amount, 0))
+
+    profile.stats = { ...profile.stats, ...stats }
+  }
 }
 
 /**

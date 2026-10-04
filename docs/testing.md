@@ -12,7 +12,7 @@ npm ci                      # install (root)
 cd functions && npm install # install the functions project, then `cd ..`
 
 npm run typecheck           # vue-tsc, strict, app + shared + tests
-npm test                    # vitest, jsdom, tests/unit/**  → 134 tests
+npm test                    # vitest, jsdom, tests/unit/**  → 146 tests
 npm run build               # production build to dist/
 npm run dev                 # local mode at http://localhost:5173 (binds 0.0.0.0)
 
@@ -31,16 +31,18 @@ npm run deploy:hosting      # builds the app, deploys
 
 ---
 
-## 2. Unit suites (134 tests, all passing locally)
+## 2. Unit suites (146 tests, all passing locally)
 
 | Suite | Tests | Proves |
 | --- | --- | --- |
 | `tests/unit/tokenPolicy.spec.ts` | 22 | 60 min = 1.00 TT; 30 min = 0.50 TT; rounding boundaries (31 min → 0.50 under `nearest`, 38 min → 0.75); `round_up`/`round_down`/`exact` behaviour; explanation strings; duration and window validation (15–180 min, 2 h notice, 60 days); wallet maths (affordability, hold/release, negative-guard); cancellation refund policy including the free window and the teacher-cancels case. |
 | `tests/unit/booking.spec.ts` | 18 | Window overlap (touching windows do **not** conflict); conflict detection against a member's calendar including buffers; the status transition table (a settled booking is terminal); `canJoinRoom` (participants only, opens 15 min before, closed after the room closes); lifecycle helpers. |
-| `tests/unit/settlement.spec.ts` | 23 | `verifyAttendance` from the **overlap** of both presence segments clamped to the booked window, including one-sided and partial presence; the quorum rule `min(minVerifiedMinutes, max(1, ceil(booked/2)))`; `planSettlement` outcomes — `settle`, `partial` (debit floored to the increment), `refund`, `blocked` with each reason in `SETTLEMENT_BLOCKED_REASONS`; double confirmation overriding a missed quorum while auto-completion alone does not; ledger construction: deterministic ids, balanced debit/credit amounts, `balanceAfter`, `policyCode`. |
-| `tests/unit/localBackend.spec.ts` | 25 | The whole reference backend as an integration surface: sign-up provisions profile + wallet + grant + notification; sign-in/sign-out and session persistence; booking request → confirm → room creation; a pending booking moves no tokens; running a session writes attendance and settles exactly once; a replayed settlement is a no-op; signalling is scoped so a non-participant cannot read or post; governance actions (role changes, wallet adjustments with a reason, dispute resolution refunding from the ledger). |
+| `tests/unit/settlement.spec.ts` | 27 | `verifyAttendance` from the **overlap** of both presence segments clamped to the booked window, including one-sided and partial presence; the quorum rule `min(minVerifiedMinutes, max(1, ceil(booked/2)))`; `planSettlement` outcomes — `settle`, `partial` (debit floored to the increment), `refund`, `blocked` with each reason in `SETTLEMENT_BLOCKED_REASONS`; double confirmation overriding a missed quorum while auto-completion alone does not; ledger construction: deterministic ids, balanced debit/credit amounts, `balanceAfter`, `policyCode`. |
+| `tests/unit/localBackend.spec.ts` | 28 | The whole reference backend as an integration surface: sign-up provisions profile + wallet + grant + notification; sign-in/sign-out and session persistence; booking request → confirm → room creation; a pending booking moves no tokens; running a session writes attendance and settles exactly once; a replayed settlement is a no-op; signalling is scoped so a non-participant cannot read or post; governance actions (role changes, wallet adjustments with a reason, dispute resolution refunding from the ledger). |
 | `tests/unit/components.spec.ts` | 17 | Primitive behaviour that accessibility depends on: button loading/disabled semantics, icon labelling, input label/error wiring, select options, modal focus trap + `Escape` + focus restoration, empty-state actions, badge/stat rendering. |
 | `tests/unit/routes.spec.ts` | 7 | The application as a whole: mounts the real router, stores and reference backend, then walks all eleven public routes and seven member routes, asserts the 404 page, asserts that eight protected routes redirect a guest to `/signin` with the intended path remembered, that a member is bounced from `/admin` to the dashboard, that signing out closes the member surface again, and that the steward dashboard renders. A render-time error on any page fails the test, so a broken page cannot pass silently. |
+| `tests/unit/indexes.spec.ts` | 15 | `firestore.indexes.json` covers every composite-index-shaped Firestore query the app issues, and declares nothing unexplained — the only place a missing index can be caught without a deployed project. Written after it found three missing indexes, one of which the hourly auto-settlement sweep needs. |
+| `tests/unit/seedIntegrity.spec.ts` | 12 | The demo world obeys the product's own rules: no dangling references, every wallet equal to its own ledger, tokens conserved across settlements, every settlement record tied to its booking and its two ledger rows, every listing score and member statistic re-derived from the reviews and sessions behind it. It found two demo-data defects on its first run, after which the seed stopped incrementing counters by hand and derives them from the facts through the same shared helpers the settlement engine uses. |
 
 Run them with `npm test` (watch: `npm run test:watch`). The suite is deterministic and offline — it never
 touches Firebase or the network.

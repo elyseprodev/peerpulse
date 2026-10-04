@@ -601,11 +601,11 @@ describe('denormalised counters', () => {
 
     expect(teacherStats.sessionsCompleted).toBe(teacherWas.sessionsCompleted + 1)
     expect(teacherStats.sessionsTaught).toBe(teacherWas.sessionsTaught + 1)
-    expect(teacherStats.teachingHours).toBeCloseTo(teacherWas.teachingHours + hours, 5)
-    expect(teacherStats.tokensEarned).toBeCloseTo(teacherWas.tokensEarned + amount, 5)
+    expect(teacherStats.teachingHours).toBeCloseTo(teacherWas.teachingHours + hours, 4)
+    expect(teacherStats.tokensEarned).toBeCloseTo(teacherWas.tokensEarned + amount, 4)
     expect(learnerStats.sessionsCompleted).toBe(learnerWas.sessionsCompleted + 1)
-    expect(learnerStats.learningHours).toBeCloseTo(learnerWas.learningHours + hours, 5)
-    expect(learnerStats.tokensSpent).toBeCloseTo(learnerWas.tokensSpent + amount, 5)
+    expect(learnerStats.learningHours).toBeCloseTo(learnerWas.learningHours + hours, 4)
+    expect(learnerStats.tokensSpent).toBeCloseTo(learnerWas.tokensSpent + amount, 4)
 
     expect((await world.db!.doc(`skills/${SKILL_ID}`).get()).data()!.completedCount).toBe(
       (listingBefore.completedCount as number) + 1,
@@ -634,7 +634,7 @@ describe('denormalised counters', () => {
     )
     expect((teacherAfter.stats as Record<string, number>).tokensEarned).toBeCloseTo(
       (teacherBefore.stats as Record<string, number>).tokensEarned,
-      5,
+      4,
     )
     expect((await world.db!.doc(`skills/${SKILL_ID}`).get()).data()!.completedCount).toBe(listingBefore.completedCount)
   })

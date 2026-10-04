@@ -146,7 +146,7 @@ const availabilitySummary = computed(() => {
       <!-- Stats -->
       <section class="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4" aria-label="Member activity">
         <AppStat label="Sessions completed" :value="member.stats.sessionsCompleted" hint="Teaching and learning" icon="check" />
-        <AppStat label="Teaching hours" :value="`${member.stats.teachingHours}h`" hint="Time given to others" icon="clock" tone="cyan" />
+        <AppStat label="Teaching hours" :value="formatHours(member.stats.teachingHours * 60)" hint="Time given to others" icon="clock" tone="cyan" />
         <AppStat label="Tokens earned" :value="member.stats.tokensEarned" hint="Lifetime" icon="tokens" tone="brand" />
         <AppStat label="Learning hours" :value="formatHours(member.stats.learningHours * 60)" hint="Time received" icon="book" tone="warn" />
       </section>

@@ -10,7 +10,7 @@ import { useBookingStore } from '@/stores/bookings'
 import { useUiStore } from '@/stores/ui'
 import { getBackend } from '@/lib/backend'
 import { categoryAccent, categoryName, SKILL_LEVEL_LABELS, SESSION_FORMAT_LABELS } from '@/lib/catalog'
-import { formatDuration, formatRelative } from '@/lib/format'
+import { formatDuration, formatHours, formatRelative } from '@/lib/format'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppBadge from '@/components/ui/AppBadge.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
@@ -291,7 +291,7 @@ async function submitReport(): Promise<void> {
               </p>
               <div class="flex flex-wrap gap-2 pt-1">
                 <AppBadge tone="brand">{{ owner?.stats.sessionsTaught ?? 0 }} taught</AppBadge>
-                <AppBadge tone="muted">{{ owner?.stats.learningHours ?? 0 }}h learned</AppBadge>
+                <AppBadge tone="muted">{{ formatHours((owner?.stats.learningHours ?? 0) * 60) }} learned</AppBadge>
                 <AppBadge v-if="owner?.languages.length" tone="cyan">{{ owner.languages.join(' · ').toUpperCase() }}</AppBadge>
               </div>
             </div>

@@ -7,7 +7,7 @@ import { useSkillsStore } from '@/stores/skills'
 import { useNotificationStore } from '@/stores/notifications'
 import { availableBalance } from '@shared/tokenPolicy'
 import { canJoinRoom } from '@shared/booking'
-import { formatDateTimeRange, formatDuration, formatRelative } from '@/lib/format'
+import { formatDateTimeRange, formatDuration, formatHours, formatRelative } from '@/lib/format'
 import { categoryName } from '@/lib/catalog'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
@@ -83,7 +83,7 @@ onMounted(async () => {
       />
       <AppStat
         label="Teaching hours"
-        :value="`${teachingHours}h`"
+        :value="formatHours(teachingHours * 60)"
         hint="Time you have given"
         icon="clock"
         tone="cyan"

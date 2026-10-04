@@ -485,7 +485,7 @@ describe('ledger construction', () => {
     expect(teacher.teachingHours).toBe(1)
   })
 
-  it('rounds hours to one decimal, like every hour figure in the fixtures', () => {
+  it('keeps hour totals exact instead of rounding each session to a tenth', () => {
     const stats = {
       sessionsCompleted: 0,
       sessionsTaught: 0,
@@ -496,9 +496,18 @@ describe('ledger construction', () => {
       tokensEarned: 0,
       tokensSpent: 0,
     }
-    // A 20-minute minimum session is a third of an hour.
-    expect(statsAfterSettlement(stats, 'teacher', 20, { creditAmount: 0.33, debitAmount: 0.33 }).teachingHours).toBe(0.3)
-    expect(statsAfterSettlement(stats, 'learner', 75, { creditAmount: 1.25, debitAmount: 1.25 }).learningHours).toBe(1.3)
+    const add = (minutes: number) => statsAfterSettlement(stats, 'teacher', minutes, { creditAmount: 0, debitAmount: 0 })
+    // A 20-minute minimum session is a third of an hour, and it stays a third.
+    expect(add(20).teachingHours).toBeCloseTo(1 / 3, 4)
+
+    // The drift this replaced: eight 50-minute sessions are 6.6667 hours, but
+    // rounding each one to 0.8 first reports 6.4 — half an hour of teaching lost.
+    let accumulated = stats
+    for (let session = 0; session < 8; session += 1) {
+      accumulated = statsAfterSettlement(accumulated, 'teacher', 50, { creditAmount: 0, debitAmount: 0 })
+    }
+    expect(accumulated.teachingHours).toBeCloseTo(8 * (50 / 60), 4)
+    expect(accumulated.teachingHours).not.toBe(6.4)
   })
 
   it('counts reviews and listing activity under the names the UI reads', () => {

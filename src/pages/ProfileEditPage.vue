@@ -6,7 +6,7 @@ import { useSkillsStore } from '@/stores/skills'
 import { useBookingStore } from '@/stores/bookings'
 import { useUiStore } from '@/stores/ui'
 import { DEFAULT_AVAILABILITY, INTEREST_OPTIONS, LANGUAGE_OPTIONS, SKILL_CATEGORIES, SESSION_FORMAT_LABELS } from '@/lib/catalog'
-import { formatDuration } from '@/lib/format'
+import { formatDuration, formatHours } from '@/lib/format'
 import AppButton from '@/components/ui/AppButton.vue'
 import AppInput from '@/components/ui/AppInput.vue'
 import AppSelect from '@/components/ui/AppSelect.vue'
@@ -375,7 +375,7 @@ function toggleIn(list: string[], value: string): string[] {
           <h2 class="font-display text-base font-semibold text-ink">Stats visible on your profile</h2>
           <ul class="mt-3 space-y-2 text-xs text-muted">
             <li class="flex items-center justify-between"><span>Sessions completed</span><span class="text-ink">{{ profile?.stats.sessionsCompleted ?? 0 }}</span></li>
-            <li class="flex items-center justify-between"><span>Teaching hours</span><span class="text-ink">{{ profile?.stats.teachingHours ?? 0 }}h</span></li>
+            <li class="flex items-center justify-between"><span>Teaching hours</span><span class="text-ink">{{ formatHours((profile?.stats.teachingHours ?? 0) * 60) }}</span></li>
             <li class="flex items-center justify-between"><span>Tokens earned</span><span class="text-ink">{{ profile?.stats.tokensEarned ?? 0 }}</span></li>
             <li class="flex items-center justify-between"><span>Reviews</span><span class="text-ink">{{ profile?.stats.reviewCount ?? 0 }}</span></li>
           </ul>

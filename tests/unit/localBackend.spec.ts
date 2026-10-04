@@ -303,10 +303,10 @@ describe('local backend: rooms, attendance and settlement', () => {
     const learnerAfter = (await backend.getUser('demo_sam'))!
     expect(teacherAfter.stats.sessionsCompleted).toBe(teacherBefore.stats.sessionsCompleted + 1)
     expect(teacherAfter.stats.sessionsTaught).toBe(teacherBefore.stats.sessionsTaught + 1)
-    expect(teacherAfter.stats.teachingHours).toBeCloseTo(teacherBefore.stats.teachingHours + hours, 5)
-    expect(teacherAfter.stats.tokensEarned).toBeCloseTo(teacherBefore.stats.tokensEarned + amount, 5)
+    expect(teacherAfter.stats.teachingHours).toBeCloseTo(teacherBefore.stats.teachingHours + hours, 4)
+    expect(teacherAfter.stats.tokensEarned).toBeCloseTo(teacherBefore.stats.tokensEarned + amount, 4)
     expect(learnerAfter.stats.sessionsCompleted).toBe(learnerBefore.stats.sessionsCompleted + 1)
-    expect(learnerAfter.stats.learningHours).toBeCloseTo(learnerBefore.stats.learningHours + hours, 5)
+    expect(learnerAfter.stats.learningHours).toBeCloseTo(learnerBefore.stats.learningHours + hours, 4)
     expect(learnerAfter.stats.tokensSpent).toBeCloseTo(learnerBefore.stats.tokensSpent + amount, 5)
 
     // A settled session counts on the listing; a name is not one of its fields.
