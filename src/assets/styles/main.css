@@ -1,0 +1,305 @@
+@import 'tailwindcss';
+
+/* ══════════════════════════════════════════════════════════════════════════
+   PeerPulse Design Tokens
+   Brand: "Trade Time. Share Skills. Grow Together."
+   Dark-first premium palette with green accents (growth, trust, exchange).
+   ══════════════════════════════════════════════════════════════════════════ */
+@theme {
+  /* Brand palette — exactly the values from the design brief */
+  --color-canvas: #071521; /* primary background   */
+  --color-surface: #0b1f2d; /* secondary background */
+  --color-surface-2: #0f2837; /* raised surface       */
+  --color-brand: #10b981; /* primary green        */
+  --color-brand-bright: #34d399; /* bright accent green  */
+  --color-brand-deep: #059669;
+  --color-cyan: #22d3ee; /* optional soft accent */
+  --color-muted: #a7bbc8; /* secondary text       */
+  --color-line: #1d4553; /* borders              */
+  --color-ink: #ffffff;
+  --color-danger: #f87171;
+  --color-danger-deep: #b91c1c;
+  --color-warn: #fbbf24;
+  --color-warn-deep: #b45309;
+
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-display: 'Sora', 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, 'SFMono-Regular', 'JetBrains Mono', Menlo, monospace;
+
+  --radius-card: 1.25rem;
+  --radius-pill: 9999px;
+
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.35), 0 12px 32px -12px rgb(0 0 0 / 0.55);
+  --shadow-glow: 0 0 0 1px rgb(16 185 129 / 0.35), 0 18px 50px -18px rgb(16 185 129 / 0.55);
+
+  --animate-fade-up: fade-up 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-fade-in: fade-in 0.35s ease-out both;
+  --animate-pulse-ring: pulse-ring 2.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  --animate-marquee: marquee 42s linear infinite;
+  --animate-shimmer: shimmer 1.6s linear infinite;
+}
+
+/* Light theme — the product is dark-first; light is an opt-in accessibility
+   alternative. Only the surface/text tokens change; brand hues stay put. */
+html.light {
+  --color-canvas: #f3f8f7;
+  --color-surface: #ffffff;
+  --color-surface-2: #eef5f4;
+  --color-brand: #059669;
+  --color-brand-bright: #10b981;
+  --color-muted: #4a6b78;
+  --color-line: #cfe3e2;
+  --color-ink: #06121b;
+  color-scheme: light;
+}
+
+html {
+  color-scheme: dark;
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  background-color: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-feature-settings: 'cv11', 'ss01';
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Ambient brand glow behind the whole app */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(60rem 40rem at 78% -12%, rgb(16 185 129 / 0.14), transparent 60%),
+    radial-gradient(48rem 34rem at 8% 6%, rgb(34 211 238 / 0.09), transparent 62%);
+}
+
+html.light body::before {
+  background:
+    radial-gradient(60rem 40rem at 78% -12%, rgb(16 185 129 / 0.16), transparent 60%),
+    radial-gradient(48rem 34rem at 8% 6%, rgb(34 211 238 / 0.12), transparent 62%);
+}
+
+#app {
+  position: relative;
+  z-index: 1;
+  min-height: 100dvh;
+  isolation: isolate;
+}
+
+::selection {
+  background: rgb(16 185 129 / 0.35);
+  color: var(--color-ink);
+}
+
+/* ── Focus visibility (WCAG 2.2 AA) ─────────────────────────────────────── */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-brand-bright);
+  outline-offset: 2px;
+  border-radius: 0.5rem;
+}
+
+/* ── Scrollbars ─────────────────────────────────────────────────────────── */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--color-line) 80%, transparent) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: color-mix(in oklab, var(--color-line) 85%, transparent);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in oklab, var(--color-brand) 60%, var(--color-line));
+  background-clip: content-box;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Reusable component classes (the shared UI kit vocabulary)
+   ══════════════════════════════════════════════════════════════════════════ */
+@layer components {
+  .pp-card {
+    border-radius: var(--radius-card);
+    border: 1px solid color-mix(in oklab, var(--color-line) 85%, transparent);
+    background: linear-gradient(
+      160deg,
+      color-mix(in oklab, var(--color-surface) 96%, var(--color-brand) 4%),
+      var(--color-surface)
+    );
+    box-shadow: var(--shadow-card);
+  }
+
+  .pp-card-hover {
+    transition:
+      transform 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+      border-color 0.28s ease,
+      box-shadow 0.28s ease;
+  }
+  .pp-card-hover:hover {
+    transform: translateY(-3px);
+    border-color: color-mix(in oklab, var(--color-brand) 55%, var(--color-line));
+    box-shadow: var(--shadow-glow);
+  }
+
+  .pp-glass {
+    background: color-mix(in oklab, var(--color-surface) 72%, transparent);
+    backdrop-filter: blur(14px) saturate(140%);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    border: 1px solid color-mix(in oklab, var(--color-line) 70%, transparent);
+  }
+
+  .pp-gradient-text {
+    background: linear-gradient(100deg, var(--color-brand-bright), var(--color-cyan) 70%, #a7f3d0);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .pp-hairline {
+    border-top: 1px solid color-mix(in oklab, var(--color-line) 70%, transparent);
+  }
+
+  .pp-skeleton {
+    background: linear-gradient(
+      90deg,
+      color-mix(in oklab, var(--color-line) 45%, transparent) 25%,
+      color-mix(in oklab, var(--color-line) 75%, transparent) 37%,
+      color-mix(in oklab, var(--color-line) 45%, transparent) 63%
+    );
+    background-size: 400% 100%;
+    animation: var(--animate-shimmer);
+    border-radius: 0.75rem;
+  }
+
+  .pp-grid-lines {
+    background-image:
+      linear-gradient(to right, color-mix(in oklab, var(--color-line) 40%, transparent) 1px, transparent 1px),
+      linear-gradient(to bottom, color-mix(in oklab, var(--color-line) 40%, transparent) 1px, transparent 1px);
+    background-size: 56px 56px;
+    mask-image: radial-gradient(ellipse at 50% 0%, black 20%, transparent 75%);
+  }
+
+  .pp-scroll-x {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .pp-scroll-x::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@layer utilities {
+  .pp-container {
+    width: 100%;
+    margin-inline: auto;
+    max-width: 80rem;
+    padding-inline: 1rem;
+  }
+  @media (min-width: 768px) {
+    .pp-container {
+      padding-inline: 2rem;
+    }
+  }
+  .pp-stagger > * {
+    animation: var(--animate-fade-up);
+    animation-delay: calc(var(--i, 0) * 60ms);
+  }
+}
+
+/* ── Keyframes ──────────────────────────────────────────────────────────── */
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes pulse-ring {
+  0% {
+    box-shadow: 0 0 0 0 rgb(16 185 129 / 0.45);
+  }
+  70% {
+    box-shadow: 0 0 0 14px rgb(16 185 129 / 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgb(16 185 129 / 0);
+  }
+}
+@keyframes marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+@keyframes shimmer {
+  from {
+    background-position: 100% 50%;
+  }
+  to {
+    background-position: 0 50%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ── Vue Datepicker dark theme bridge ───────────────────────────────────── */
+:root {
+  --dp-background-color: var(--color-surface);
+  --dp-text-color: var(--color-ink);
+  --dp-hover-color: color-mix(in oklab, var(--color-brand) 22%, var(--color-surface));
+  --dp-hover-text-color: var(--color-ink);
+  --dp-hover-icon-color: var(--color-brand-bright);
+  --dp-primary-color: var(--color-brand);
+  --dp-primary-disabled-color: color-mix(in oklab, var(--color-brand) 45%, grey);
+  --dp-primary-text-color: #04231a;
+  --dp-secondary-color: var(--color-muted);
+  --dp-border-color: var(--color-line);
+  --dp-menu-border-color: var(--color-line);
+  --dp-border-color-hover: var(--color-brand);
+  --dp-disabled-color: color-mix(in oklab, var(--color-line) 60%, transparent);
+  --dp-scroll-bar-background: var(--color-canvas);
+  --dp-scroll-bar-color: var(--color-line);
+  --dp-success-color: var(--color-brand);
+  --dp-icon-color: var(--color-muted);
+  --dp-danger-color: var(--color-danger);
+  --dp-highlight-color: rgb(16 185 129 / 0.18);
+  --dp-font-family: var(--font-sans);
+}
+.dp__theme_dark {
+  --dp-background-color: var(--color-surface);
+}

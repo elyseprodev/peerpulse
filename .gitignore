@@ -1,0 +1,41 @@
+# dependencies
+node_modules
+.pnp
+.pnp.js
+
+# build output
+dist
+dist-ssr
+*.local
+
+# environment / secrets — never commit these
+.env
+.env.local
+.env.*.local
+functions/.env
+functions/lib
+serviceAccount*.json
+*-service-account.json
+firebase-debug.log*
+.firebase/*
+!firebase.json
+
+# editor / OS
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# test output
+coverage
+test-results
+.rules-test-cache
+ui-debug.log*
+
+# cloud functions build output (mirrored by functions/.gitignore)
+functions/lib
