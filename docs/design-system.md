@@ -111,6 +111,7 @@ navigation collapses into a sheet that traps focus while open and restores it on
 | `SkillCard` | Listing summary: teacher, level, format, duration, token cost, rating |
 | `BookingCard` | One booking with its status, countdown, participants and actions; renders the settlement outcome when present |
 | `BookingRequestModal` | Slot choice, token preview (“1 h = 1 TT”), conflict and affordability warnings, note field |
+| `ReportDialog` | One moderation dialog for every reportable thing — listing, member, post, comment or review. Presentational: the parent owns the backend call. Requires a sentence, not just a reason, and states that reports are confidential |
 | `AvailabilityEditor` | Weekly blocks with validation (end after start, no overlaps) written to `profile.availability` |
 | `MemberCard` | Directory entry with teach/learn categories |
 | `TokenExplainer` | The canonical “what a Time Token is / is not” panel, reused on the landing page, wallet and how-it-works |

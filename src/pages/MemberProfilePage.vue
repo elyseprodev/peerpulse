@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import type { Review, SkillListing, UserProfile } from '@shared/domain'
+import type { ModerationReport, Review, SkillListing, UserProfile } from '@shared/domain'
 import { useAuthStore } from '@/stores/auth'
+import { useUiStore } from '@/stores/ui'
 import { useBookingStore } from '@/stores/bookings'
 import { useSkillsStore } from '@/stores/skills'
 import { getBackend } from '@/lib/backend'
@@ -11,6 +12,7 @@ import { formatDuration, formatHours, formatRelative } from '@/lib/format'
 import AppAvatar from '@/components/ui/AppAvatar.vue'
 import AppBadge from '@/components/ui/AppBadge.vue'
 import AppButton from '@/components/ui/AppButton.vue'
+import ReportDialog from '@/components/social/ReportDialog.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import AppRating from '@/components/ui/AppRating.vue'
 import AppStat from '@/components/ui/AppStat.vue'
@@ -28,6 +30,34 @@ const listings = ref<SkillListing[]>([])
 const reviews = ref<Review[]>([])
 const reviewers = ref<Record<string, string>>({})
 const loading = ref(true)
+const ui = useUiStore()
+const reportOpen = ref(false)
+const reportError = ref<string | null>(null)
+const submitting = ref(false)
+
+async function submitReport(payload: { reason: ModerationReport['reason']; details: string }): Promise<void> {
+  if (!member.value || !auth.profile) return
+  submitting.value = true
+  reportError.value = null
+  try {
+    const backend = await getBackend()
+    await backend.createReport({
+      reporterUid: auth.profile.uid,
+      targetType: 'user',
+      targetId: member.value.uid,
+      targetPath: `users/${member.value.uid}`,
+      targetLabel: member.value.displayName,
+      reason: payload.reason,
+      details: payload.details,
+    })
+    reportOpen.value = false
+    ui.success('Report sent', 'A steward will review this profile. Thank you for keeping the exchange safe.')
+  } catch (e) {
+    reportError.value = e instanceof Error ? e.message : 'The report could not be sent.'
+  } finally {
+    submitting.value = false
+  }
+}
 
 const uid = computed(() => String(route.params.uid))
 const isSelf = computed(() => auth.profile?.uid === uid.value)
@@ -139,6 +169,14 @@ const availabilitySummary = computed(() => {
             <template v-else-if="member.privacy.allowDirectRequests">
               <AppButton to="/skills" icon="calendar">Book a session</AppButton>
             </template>
+            <button
+              v-if="!isSelf && auth.isAuthenticated"
+              type="button"
+              class="text-xs text-muted underline-offset-2 transition hover:text-brand-bright hover:underline"
+              @click="reportOpen = true"
+            >
+              Report this member
+            </button>
           </div>
         </div>
       </header>
@@ -266,5 +304,15 @@ const availabilitySummary = computed(() => {
         </aside>
       </div>
     </template>
+
+    <ReportDialog
+      :open="reportOpen"
+      subject="this member"
+      :target-label="member?.displayName ?? ''"
+      :loading="submitting"
+      :error="reportError"
+      @close="reportOpen = false"
+      @submit="submitReport"
+    />
   </div>
 </template>

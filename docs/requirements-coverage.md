@@ -8,6 +8,13 @@ requirements appear exactly once, that every path in this table exists, that eve
 appears in the file it is attributed to, and that a row claiming `verified` cites a test. It cannot check that
 a test is *good* — only that the evidence it names is real and still there.
 
+**A correction, kept in the open.** The first version of this table listed FR-29 as `partial` and claimed "a
+member cannot report a bad listing today". That was wrong: `SkillDetailPage` did report listings — under a
+locally-named `submitReport`, which a grep for the function name used elsewhere missed. The same pass then found
+the real gap: comments, members and reviews had no affordance at all. All five are wired now through a single
+shared dialog, and the mistake is recorded here because a coverage document that quietly edits itself is not
+evidence of anything.
+
 **Status vocabulary**
 
 | Status | Meaning |
@@ -16,7 +23,7 @@ a test is *good* — only that the evidence it names is real and still there.
 | `partial` | Implemented, but something in the requirement is missing, simulated, or only proven in one backend mode. |
 | `not implemented` | The requirement has no working implementation. It is listed so it cannot be forgotten. |
 
-**17 verified · 16 partial · 1 not implemented** — recomputed from the rows below by
+**18 verified · 15 partial · 1 not implemented** — recomputed from the rows below by
 `tests/unit/requirementsCoverage.spec.ts`, so the summary cannot drift from the table. Nothing here is claimed as
 verified on the strength of "the code looks right".
 
@@ -52,7 +59,7 @@ verified on the strength of "the code looks right".
 | FR-26 | Idempotent settlement — never twice | `shared/settlement.ts`, `functions/src/bookings.ts` | `tests/unit/settlement.spec.ts`: "never settles twice"; `functions/tests/functions.spec.ts`: "moves exactly one token pair once attendance is verified, and never twice"; `tests/unit/localBackend.spec.ts`: "settles the agreed tokens after a verified session, and never twice" | `verified` | Idempotence rests on document ids inside a transaction; multi-writer contention is outside the mock (`docs/testing.md` §5) |
 | FR-27 | Communities: create, join, post kinds, comment, react | `functions/src/social.ts`, `src/pages/CommunitiesPage.vue`, `src/pages/CommunityDetailPage.vue` | `tests/unit/localBackend.spec.ts`: "exposes communities, posts and comments to signed-in members" | `partial` | Event-shaped posts (time, location, capacity) exist in the model and the seed; no test asserts their rendering or validation |
 | FR-28 | Owner/moderator curation with a visible affordance | `src/pages/CommunityDetailPage.vue`, `functions/src/social.ts` | — | `partial` | The "You moderate this" affordance renders; moderation decisions themselves are covered under FR-30 |
-| FR-29 | Report a listing, post, comment, member or review | `src/pages/CommunityDetailPage.vue` (report dialog), `functions/src/social.ts` | `tests/unit/localBackend.spec.ts`: "files a report, denies members the resolution, and lets an admin resolve it" | `partial` | Only **community posts** offer the report affordance in the UI. The backend `createReport` accepts any target type and is tested, but listings, comments, member profiles and reviews have no button that calls it — a member cannot report a bad listing today |
+| FR-29 | Report a listing, post, comment, member or review | `src/components/social/ReportDialog.vue` (one dialog for all five), `src/pages/SkillDetailPage.vue`, `src/pages/CommunityDetailPage.vue`, `src/pages/MemberProfilePage.vue`, `src/lib/backend/firebase/index.ts` | `tests/unit/reporting.spec.ts`: "refuses to send without an explanation", "files a report about a listing from the listing page", "files a report about a member from their profile", "files a report about a post and about a comment"; `tests/unit/localBackend.spec.ts`: "files a report, denies members the resolution, and lets an admin resolve it" | `verified` | The UI covers posts, comments, listings, members and reviews; a *community* itself has no report affordance (reporting a post inside it is the available route) |
 | FR-30 | Steward triage `open → reviewing → resolved/dismissed`, hide content | `functions/src/social.ts` | `functions/tests/functions.spec.ts`: "hides upheld content and records the steward", "dismisses a report without touching the reported content" | `verified` | — |
 | FR-31 | Disputes with refund / release / split outcomes | `functions/src/social.ts`, `shared/settlement.ts` | `functions/tests/functions.spec.ts`: "can release a settlement without moving a token, and refuses to resolve twice over"; `tests/unit/localBackend.spec.ts`: "lets an admin adjust a wallet and keeps the reason in the ledger" | `verified` | A split refund is computed in `shared` and unit-tested there; the callable path is proven for release, not for split |
 | FR-32 | Reviews need a completed session; one per member; reply allowed | `functions/src/social.ts`, `firestore.rules` | `tests/unit/localBackend.spec.ts`: "only allows reviews after a completed session", "counts a review once, under the field names the UI reads"; `functions/tests/functions.spec.ts`: "accepts one review per member, updates the listing and profile aggregates, and refuses a duplicate" | `verified` | — |

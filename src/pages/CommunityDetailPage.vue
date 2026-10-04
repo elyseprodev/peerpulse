@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import type { CommunityComment, CommunityPost } from '@shared/domain'
+import type { CommunityComment, CommunityPost, ModerationReport } from '@shared/domain'
 import { useAuthStore } from '@/stores/auth'
 import { useCommunityStore } from '@/stores/community'
 import { useUiStore } from '@/stores/ui'
@@ -9,6 +9,7 @@ import { getBackend } from '@/lib/backend'
 import { categoryAccent, categoryName } from '@/lib/catalog'
 import { formatDateTimeRange, formatRelative, pluralize } from '@/lib/format'
 import AppButton from '@/components/ui/AppButton.vue'
+import ReportDialog from '@/components/social/ReportDialog.vue'
 import AppInput from '@/components/ui/AppInput.vue'
 import AppSelect from '@/components/ui/AppSelect.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
@@ -27,9 +28,11 @@ type Tab = 'discussion' | 'questions' | 'resources' | 'events' | 'members'
 const tab = ref<Tab>('discussion')
 const composerOpen = ref(false)
 const commentDrafts = reactive<Record<string, string>>({})
-const reportTarget = ref<CommunityPost | null>(null)
-const reportReason = ref<'spam' | 'harassment' | 'inappropriate' | 'misrepresentation' | 'other'>('spam')
-const reportDetails = ref('')
+type ReportTarget =
+  | { kind: 'post'; id: string; path: string; label: string }
+  | { kind: 'comment'; id: string; postId: string; path: string; label: string }
+const reportTarget = ref<ReportTarget | null>(null)
+const reportError = ref<string | null>(null)
 const submitting = ref(false)
 
 const form = reactive({
@@ -157,25 +160,52 @@ async function toggleComments(post: CommunityPost): Promise<void> {
   if (!community.comments[post.id]) await community.loadComments(post.id)
 }
 
-async function submitReport(): Promise<void> {
+function openReportForPost(post: CommunityPost): void {
+  reportError.value = null
+  reportTarget.value = {
+    kind: 'post',
+    id: post.id,
+    path: `communities/${communityId.value}/posts/${post.id}`,
+    label: post.title,
+  }
+}
+
+function openReportForComment(post: CommunityPost, comment: CommunityComment): void {
+  reportError.value = null
+  reportTarget.value = {
+    kind: 'comment',
+    id: comment.id,
+    postId: post.id,
+    path: `communities/${communityId.value}/posts/${post.id}/comments/${comment.id}`,
+    label: `a comment by ${comment.authorName}`,
+  }
+}
+
+function closeReport(): void {
+  reportTarget.value = null
+  reportError.value = null
+}
+
+async function submitReport(payload: { reason: ModerationReport['reason']; details: string }): Promise<void> {
   if (!reportTarget.value || !auth.profile) return
   submitting.value = true
+  reportError.value = null
   try {
     const backend = await getBackend()
     await backend.createReport({
       reporterUid: auth.profile.uid,
-      targetType: 'post',
+      targetType: reportTarget.value.kind === 'post' ? 'post' : 'comment',
       targetId: reportTarget.value.id,
-      targetPath: `communities/${communityId.value}/posts/${reportTarget.value.id}`,
-      targetLabel: reportTarget.value.title,
-      reason: reportReason.value,
-      details: reportDetails.value,
+      targetPath: reportTarget.value.path,
+      targetLabel: reportTarget.value.label,
+      reason: payload.reason,
+      details: payload.details,
     })
-    reportTarget.value = null
-    reportDetails.value = ''
-    ui.success('Report sent', 'A steward will review this post.')
+    const what = reportTarget.value.kind === 'post' ? 'post' : 'comment'
+    closeReport()
+    ui.success('Report sent', `A steward will review this ${what}.`)
   } catch (e) {
-    ui.error('Could not send the report', e instanceof Error ? e.message : undefined)
+    reportError.value = e instanceof Error ? e.message : 'The report could not be sent.'
   } finally {
     submitting.value = false
   }
@@ -304,7 +334,7 @@ function commentsFor(postId: string): CommunityComment[] {
               type="button"
               class="rounded-lg p-1.5 text-muted transition hover:bg-white/5 hover:text-danger"
               aria-label="Report this post"
-              @click="reportTarget = post"
+              @click="openReportForPost(post)"
             >
               <AppIcon name="flag" :size="15" />
             </button>
@@ -374,6 +404,14 @@ function commentsFor(postId: string): CommunityComment[] {
                   <span class="text-[10px] font-normal text-muted">· {{ formatRelative(comment.createdAt) }}</span>
                 </p>
                 <p class="mt-0.5 text-xs leading-relaxed text-muted">{{ comment.body }}</p>
+                <button
+                  v-if="isMember && comment.authorUid !== auth.profile?.uid"
+                  type="button"
+                  class="mt-1 text-[10px] text-muted underline-offset-2 transition hover:text-brand-bright hover:underline"
+                  @click="openReportForComment(post, comment)"
+                >
+                  Report this comment
+                </button>
               </div>
             </div>
 
@@ -436,25 +474,14 @@ function commentsFor(postId: string): CommunityComment[] {
     </AppModal>
 
     <!-- Report post -->
-    <AppModal :open="Boolean(reportTarget)" title="Report this post" size="sm" @close="reportTarget = null">
-      <div class="space-y-4">
-        <AppSelect
-          v-model="reportReason"
-          label="Reason"
-          :options="[
-            { value: 'spam', label: 'Spam or advertising' },
-            { value: 'harassment', label: 'Harassment' },
-            { value: 'inappropriate', label: 'Inappropriate content' },
-            { value: 'misrepresentation', label: 'Misrepresentation' },
-            { value: 'other', label: 'Something else' },
-          ]"
-        />
-        <AppInput v-model="reportDetails" label="Details" textarea :rows="3" maxlength="800" />
-      </div>
-      <template #footer>
-        <AppButton variant="ghost" @click="reportTarget = null">Cancel</AppButton>
-        <AppButton variant="danger" :loading="submitting" @click="submitReport">Send report</AppButton>
-      </template>
-    </AppModal>
+    <ReportDialog
+      :open="Boolean(reportTarget)"
+      :subject="reportTarget?.kind === 'comment' ? 'this comment' : 'this post'"
+      :target-label="reportTarget?.label ?? ''"
+      :loading="submitting"
+      :error="reportError"
+      @close="closeReport"
+      @submit="submitReport"
+    />
   </div>
 </template>

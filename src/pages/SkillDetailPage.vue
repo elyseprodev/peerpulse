@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import type { Review } from '@shared/domain'
+import type { ModerationReport, Review } from '@shared/domain'
 import { computeTokenAmount, explainTokenAmount } from '@shared/tokenPolicy'
 import { DEFAULT_PLATFORM_CONFIG } from '@shared/tokenPolicy'
 import { useAuthStore } from '@/stores/auth'
@@ -12,14 +12,13 @@ import { getBackend } from '@/lib/backend'
 import { categoryAccent, categoryName, SKILL_LEVEL_LABELS, SESSION_FORMAT_LABELS } from '@/lib/catalog'
 import { formatDuration, formatHours, formatRelative } from '@/lib/format'
 import AppButton from '@/components/ui/AppButton.vue'
+import ReportDialog from '@/components/social/ReportDialog.vue'
 import AppBadge from '@/components/ui/AppBadge.vue'
 import AppIcon from '@/components/ui/AppIcon.vue'
 import AppAvatar from '@/components/ui/AppAvatar.vue'
 import AppRating from '@/components/ui/AppRating.vue'
 import AppSkeleton from '@/components/ui/AppSkeleton.vue'
 import AppEmptyState from '@/components/ui/AppEmptyState.vue'
-import AppInput from '@/components/ui/AppInput.vue'
-import AppModal from '@/components/ui/AppModal.vue'
 import SkillCard from '@/components/skills/SkillCard.vue'
 import BookingRequestModal from '@/components/bookings/BookingRequestModal.vue'
 
@@ -33,8 +32,17 @@ const reviews = ref<Review[]>([])
 const reviewers = ref<Record<string, string>>({})
 const bookingOpen = ref(false)
 const reportOpen = ref(false)
-const reportReason = ref<'spam' | 'harassment' | 'inappropriate' | 'misrepresentation' | 'other'>('spam')
-const reportDetails = ref('')
+/**
+ * What the open dialog is about. A listing and a review need different target
+ * types and paths, so the dialog is driven by a discriminated target rather than
+ * a boolean per surface.
+ */
+const reportTarget = ref<
+  | { kind: 'skill'; id: string; path: string; label: string }
+  | { kind: 'review'; id: string; path: string; label: string }
+  | null
+>(null)
+const reportError = ref<string | null>(null)
 const submitting = ref(false)
 const bookingError = ref<string | null>(null)
 const alsoLike = ref<Awaited<ReturnType<typeof skills.loadByOwner>>>([])
@@ -89,25 +97,54 @@ async function submitBooking(payload: { startAt: string; endAt: string; timezone
   }
 }
 
-async function submitReport(): Promise<void> {
+function openReportForSkill(): void {
   if (!skill.value) return
+  reportError.value = null
+  reportTarget.value = {
+    kind: 'skill',
+    id: skill.value.id,
+    path: `skills/${skill.value.id}`,
+    label: skill.value.title,
+  }
+  reportOpen.value = true
+}
+
+function openReportForReview(review: Review): void {
+  reportError.value = null
+  reportTarget.value = {
+    kind: 'review',
+    id: review.id,
+    path: `skills/${skillId.value}/reviews/${review.id}`,
+    label: `a review by ${reviewers.value[review.authorUid] ?? 'a member'}`,
+  }
+  reportOpen.value = true
+}
+
+function closeReport(): void {
+  reportOpen.value = false
+  reportTarget.value = null
+}
+
+async function submitReport(payload: { reason: ModerationReport['reason']; details: string }): Promise<void> {
+  if (!reportTarget.value || !auth.profile) return
   submitting.value = true
+  reportError.value = null
   try {
     const backend = await getBackend()
     await backend.createReport({
-      reporterUid: auth.profile!.uid,
-      targetType: 'skill',
-      targetId: skill.value.id,
-      targetPath: `skills/${skill.value.id}`,
-      targetLabel: skill.value.title,
-      reason: reportReason.value,
-      details: reportDetails.value,
+      reporterUid: auth.profile.uid,
+      targetType: reportTarget.value.kind === 'skill' ? 'skill' : 'review',
+      targetId: reportTarget.value.id,
+      targetPath: reportTarget.value.path,
+      targetLabel: reportTarget.value.label,
+      reason: payload.reason,
+      details: payload.details,
     })
-    reportOpen.value = false
-    reportDetails.value = ''
-    ui.success('Report sent', 'A steward will review this listing. Thank you for keeping the exchange safe.')
+    const what = reportTarget.value.kind === 'skill' ? 'listing' : 'review'
+    closeReport()
+    ui.success('Report sent', `A steward will review this ${what}. Thank you for keeping the exchange safe.`)
   } catch (e) {
-    ui.error('Could not send the report', e instanceof Error ? e.message : undefined)
+    reportError.value = e instanceof Error ? e.message : 'The report could not be sent.'
   } finally {
     submitting.value = false
   }
@@ -206,6 +243,14 @@ async function submitReport(): Promise<void> {
                   <AppRating :value="review.rating" :size="13" />
                 </div>
                 <p class="mt-3 text-sm leading-relaxed text-muted">{{ review.comment }}</p>
+                <button
+                  v-if="auth.isAuthenticated && review.authorUid !== auth.profile?.uid"
+                  type="button"
+                  class="mt-2 text-[11px] text-muted underline-offset-2 transition hover:text-brand-bright hover:underline"
+                  @click="openReportForReview(review)"
+                >
+                  Report this review
+                </button>
                 <div v-if="review.responseText" class="mt-3 rounded-xl border border-brand/25 bg-brand/8 p-3">
                   <p class="text-[11px] font-medium text-brand-bright">Response from the teacher</p>
                   <p class="mt-1 text-xs text-muted">{{ review.responseText }}</p>
@@ -309,7 +354,7 @@ async function submitReport(): Promise<void> {
               <button
                 type="button"
                 class="inline-flex items-center gap-1.5 text-[11px] text-muted transition hover:text-danger"
-                @click="reportOpen = true"
+                @click="openReportForSkill"
               >
                 <AppIcon name="flag" :size="13" /> Report this listing
               </button>
@@ -331,31 +376,14 @@ async function submitReport(): Promise<void> {
       @submit="submitBooking"
     />
 
-    <AppModal :open="reportOpen" title="Report this listing" size="sm" @close="reportOpen = false">
-      <div class="space-y-4">
-        <div>
-          <label for="report-reason" class="block text-sm font-medium text-ink">Reason</label>
-          <select
-            id="report-reason"
-            v-model="reportReason"
-            class="mt-1.5 w-full rounded-xl border border-line bg-canvas/60 px-3.5 py-2.5 text-sm text-ink"
-          >
-            <option value="spam">Spam or advertising</option>
-            <option value="harassment">Harassment</option>
-            <option value="inappropriate">Inappropriate content</option>
-            <option value="misrepresentation">Misrepresentation</option>
-            <option value="other">Something else</option>
-          </select>
-        </div>
-        <AppInput v-model="reportDetails" label="What should we look at?" textarea :rows="3" maxlength="800" />
-        <p class="text-xs text-muted">
-          Reports are confidential. A steward reviews the listing and can hide it while investigating.
-        </p>
-      </div>
-      <template #footer>
-        <AppButton variant="ghost" @click="reportOpen = false">Cancel</AppButton>
-        <AppButton variant="danger" :loading="submitting" @click="submitReport">Send report</AppButton>
-      </template>
-    </AppModal>
+    <ReportDialog
+      :open="reportOpen"
+      :subject="reportTarget?.kind === 'review' ? 'this review' : 'this listing'"
+      :target-label="reportTarget?.label ?? ''"
+      :loading="submitting"
+      :error="reportError"
+      @close="closeReport"
+      @submit="submitReport"
+    />
   </div>
 </template>
