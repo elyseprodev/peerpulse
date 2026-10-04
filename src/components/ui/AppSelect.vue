@@ -1,5 +1,5 @@
 <script setup lang="ts" generic="T extends string | number">
-import { useId } from 'vue'
+import { computed, useAttrs, useId } from 'vue'
 
 const props = withDefaults(
   defineProps<{
@@ -19,6 +19,15 @@ const props = withDefaults(
 const emit = defineEmits<{ 'update:modelValue': [value: T] }>()
 
 /**
+ * As in `AppInput`: attributes go on the `<select>`, not the wrapper. A caller's
+ * `aria-label` on the wrapper left the select itself unnamed, and `inheritAttrs`
+ * on by default made that the *silent* behaviour.
+ */
+defineOptions({ inheritAttrs: false })
+
+const attrs = useAttrs()
+
+/**
  * Emit the *original* option value, not the DOM string, so numeric v-models
  * (durations, minutes) stay numbers.
  */
@@ -27,13 +36,16 @@ function onChange(event: Event): void {
   const match = props.options.find((option) => String(option.value) === raw)
   emit('update:modelValue', (match ? match.value : raw) as T)
 }
-const id = `select-${useId()}`
+const generatedId = `select-${useId()}`
+/** A caller that passes its own `id` keeps it — and the label follows it there. */
+const id = computed(() => (attrs.id as string | undefined) || generatedId)
 </script>
 
 <template>
   <div class="space-y-1.5">
     <label v-if="label" :for="id" class="block text-sm font-medium text-ink">{{ label }}</label>
     <select
+      v-bind="$attrs"
       :id="id"
       :name="name"
       :value="modelValue ?? ''"

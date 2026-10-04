@@ -44,7 +44,7 @@ database through `localStorage`.
 | `npm run dev` | Vite dev server on `0.0.0.0:5173` (local backend) |
 | `npm run build` | Typecheck (`vue-tsc`) then build to `dist/` |
 | `npm run typecheck` | Strict TypeScript check of app, shared and tests |
-| `npm test` | Vitest unit + integration suite (161 tests) |
+| `npm test` | Vitest unit + integration suite (171 tests) |
 | `cd functions && npm test` | Cloud Functions, executed against a real Admin SDK (43 tests) |
 | `npm run test:rules` | Firestore emulator security-rules suite (**needs a JDK**) |
 | `npm run sync:shared` | Mirror `shared/*` into `functions/src/shared/` |
@@ -120,7 +120,7 @@ Honesty is a feature of this repository, so it is stated on the front page:
 
 **Verified in this repository**
 
-- 161 unit/integration tests pass (`npm test`): the token maths and its boundaries, booking conflicts and
+- 171 unit/integration tests pass (`npm test`): the token maths and its boundaries, booking conflicts and
   lifecycle, attendance verification and every settlement outcome, the whole reference backend, the
   accessibility-relevant behaviour of the UI primitives, a route smoke test that mounts the real app and walks
   every route in the table (guards included) asserting that each one renders without a render error, and an
@@ -128,8 +128,12 @@ Honesty is a feature of this repository, so it is stated on the front page:
   after it found three missing ones, including the index the hourly auto-settlement sweep needs — and a
   seed-integrity audit that re-derives every counter, score and balance in the demo world from the data behind
   it (that audit found two demo-data defects; the seed now derives its counters through the same shared helpers
-  the engines use) and a WebRTC negotiation suite that exercises offerer election, glare, the ICE queue and
-  teardown with a fake peer connection. The WebRTC suite found two more defects: a permission warning that was
+  the engines use), a WebRTC negotiation suite that exercises offerer election, glare, the ICE queue and
+  teardown with a fake peer connection, and an accessibility audit that walks every route checking the
+  machine-checkable parts of WCAG 2.1 AA. The audit found the most serious defect of the project so far:
+  `AppButton` passed `href: undefined` alongside `to`, which silently removed the href `RouterLink` computes, so
+  all 39 link-buttons ("Sign in", "Book a session", …) rendered anchors **no keyboard could reach**. Mouse
+  clicks kept working, which is why manual testing never caught it. The WebRTC suite found two more defects: a permission warning that was
   wiped by the next state transition (a member could join with no camera and no explanation) and a `canPublish`
   option the room page passed but the composable never read, so a finished session's room would still have
   opened a camera.

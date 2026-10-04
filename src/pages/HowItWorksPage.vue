@@ -81,6 +81,7 @@ const FAQ = [
 <template>
   <div class="pp-container py-14">
     <SectionHeading
+      as="h1"
       eyebrow="How it works"
       title="The mechanics behind a fair time exchange"
       description="PeerPulse is deliberately boring about the money part — because there is no money. Here is exactly how a session turns into Time Tokens, and what protects both sides."

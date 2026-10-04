@@ -22,9 +22,9 @@ const ratingCount = computed(() => props.member.stats.reviewCount)
     <div class="flex items-center gap-3">
       <AppAvatar :display-name="member.displayName" :seed="member.avatarSeed" :photo-url="member.photoURL" :size="52" />
       <div class="min-w-0">
-        <h3 class="font-display group-hover:text-brand-bright truncate text-sm font-semibold text-ink transition-colors">
+        <h2 class="font-display group-hover:text-brand-bright truncate text-sm font-semibold text-ink transition-colors">
           {{ member.displayName }}
-        </h3>
+        </h2>
         <p class="truncate text-xs text-muted">{{ member.headline || 'PeerPulse member' }}</p>
         <div class="mt-1.5">
           <AppRating :value="ratingValue" :count="ratingCount" :size="12" />

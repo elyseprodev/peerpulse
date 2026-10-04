@@ -116,6 +116,7 @@ const activeChips = computed(() => {
       </div>
       <AppSelect
         :model-value="skills.filters.sort ?? 'relevance'"
+        aria-label="Sort results"
         :options="[
           { value: 'relevance', label: 'Sort: best match' },
           { value: 'rating', label: 'Sort: highest rated' },

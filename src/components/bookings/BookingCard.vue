@@ -78,7 +78,7 @@ const STATUS_TONES: Record<string, 'brand' | 'neutral' | 'cyan' | 'warn' | 'dang
           <AppBadge v-else-if="booking.settlement.state === 'partial'" tone="warn">Partially settled</AppBadge>
           <AppBadge v-else-if="booking.settlement.state === 'blocked'" tone="danger">Needs review</AppBadge>
         </div>
-        <h3 class="font-display mt-2.5 text-base font-semibold text-ink">{{ booking.skillTitle }}</h3>
+        <h2 class="font-display mt-2.5 text-base font-semibold text-ink">{{ booking.skillTitle }}</h2>
         <p class="mt-1 text-xs text-muted">
           {{ isTeacher ? 'You teach' : 'You learn' }} ·
           {{ isTeacher ? counterpartyName : counterpartyName }}

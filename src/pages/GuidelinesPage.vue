@@ -46,6 +46,7 @@ const ENFORCEMENT = [
 <template>
   <div class="pp-container py-14">
     <SectionHeading
+      as="h1"
       eyebrow="Community guidelines"
       title="How we treat each other here"
       description="PeerPulse runs on trust between strangers. These are the rules that keep an exchange without money safe to use."

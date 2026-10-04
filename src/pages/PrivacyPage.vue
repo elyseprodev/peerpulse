@@ -23,6 +23,7 @@ const CONTROLS = [
 <template>
   <div class="pp-container py-14">
     <SectionHeading
+      as="h1"
       eyebrow="Privacy"
       title="What PeerPulse stores, and why"
       description="A time-bank needs a reliable memory — bookings, attendance and the ledger — but nothing more than that. Here is exactly what we keep."

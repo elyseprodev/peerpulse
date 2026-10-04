@@ -29,9 +29,9 @@ const ownerName = computed(() => props.owner?.displayName ?? 'PeerPulse member')
           </span>
         </div>
 
-        <h3 class="font-display group-hover:text-brand-bright text-base leading-snug font-semibold text-ink transition-colors">
+        <h2 class="font-display group-hover:text-brand-bright text-base leading-snug font-semibold text-ink transition-colors">
           {{ skill.title }}
-        </h3>
+        </h2>
         <p class="line-clamp-3 text-sm leading-relaxed text-muted">{{ skill.description }}</p>
 
         <div class="mt-auto space-y-3 pt-2">

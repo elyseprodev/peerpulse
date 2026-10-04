@@ -12,7 +12,7 @@ npm ci                      # install (root)
 cd functions && npm install # install the functions project, then `cd ..`
 
 npm run typecheck           # vue-tsc, strict, app + shared + tests
-npm test                    # vitest, jsdom, tests/unit/**  → 161 tests
+npm test                    # vitest, jsdom, tests/unit/**  → 171 tests
 npm run build               # production build to dist/
 npm run dev                 # local mode at http://localhost:5173 (binds 0.0.0.0)
 
@@ -31,7 +31,7 @@ npm run deploy:hosting      # builds the app, deploys
 
 ---
 
-## 2. Unit suites (161 tests, all passing locally)
+## 2. Unit suites (171 tests, all passing locally)
 
 | Suite | Tests | Proves |
 | --- | --- | --- |
@@ -43,6 +43,7 @@ npm run deploy:hosting      # builds the app, deploys
 | `tests/unit/routes.spec.ts` | 7 | The application as a whole: mounts the real router, stores and reference backend, then walks all eleven public routes and seven member routes, asserts the 404 page, asserts that eight protected routes redirect a guest to `/signin` with the intended path remembered, that a member is bounced from `/admin` to the dashboard, that signing out closes the member surface again, and that the steward dashboard renders. A render-time error on any page fails the test, so a broken page cannot pass silently. |
 | `tests/unit/indexes.spec.ts` | 15 | `firestore.indexes.json` covers every composite-index-shaped Firestore query the app issues, and declares nothing unexplained — the only place a missing index can be caught without a deployed project. Written after it found three missing indexes, one of which the hourly auto-settlement sweep needs. |
 | `tests/unit/webrtc.spec.ts` | 15 | The negotiation state machine of live sessions, with a fake `RTCPeerConnection` and a recording signalling backend: the lower uid offers and the other side waits; a non-offerer asks to renegotiate instead of offering; an offer is answered and the remote description set; ICE candidates that arrive before the remote description are held and then released in order; an offer that crosses the designated offerer's own is ignored, while the non-offerer rolls back and answers; a `bye` marks the peer left and closes the transport; `stop()` announces departure and clears presence; a blocked camera explains itself *and survives the connection moving on*; the camera/microphone toggles travel through presence; screen sharing replaces the outgoing video track and restores the camera; and a room whose `canPublish` is false refuses to negotiate at all. |
+| `tests/unit/a11y.spec.ts` | 6 | The rendered DOM of every page against the machine-checkable parts of WCAG 2.1 AA: one `h1` per document and no skipped heading levels, every button/link/control with an accessible name, every input labelled, no duplicate ids, no positive `tabindex`, no bare `<a>`, valid `aria-live` values, and a tab-order sanity check. It found four defects — unfocusable link-buttons, `aria-label` landing on wrappers, four pages with no `h1`, and 275 unnamed decorative buttons — all listed in `docs/design-system.md` §5.1. It cannot check contrast, motion, or how any of it sounds in a real screen reader. |
 | `tests/unit/seedIntegrity.spec.ts` | 12 | The demo world obeys the product's own rules: no dangling references, every wallet equal to its own ledger, tokens conserved across settlements, every settlement record tied to its booking and its two ledger rows, every listing score and member statistic re-derived from the reviews and sessions behind it. It found two demo-data defects on its first run, after which the seed stopped incrementing counters by hand and derives them from the facts through the same shared helpers the settlement engine uses. |
 
 Run them with `npm test` (watch: `npm run test:watch`). The suite is deterministic and offline — it never

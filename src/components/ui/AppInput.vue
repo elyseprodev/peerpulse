@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, useId } from 'vue'
+import { computed, useAttrs, useId } from 'vue'
 import AppIcon from './AppIcon.vue'
 
 const props = withDefaults(
@@ -28,7 +28,22 @@ const props = withDefaults(
 
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 
-const id = `field-${useId()}`
+/**
+ * Attributes belong on the control, not on the wrapper.
+ *
+ * With the default `inheritAttrs: true`, a caller's `aria-label`, `autocomplete`
+ * or `inputmode` lands on the outer `<div>` — so `aria-label="Search members"`
+ * looked correct in the source and did nothing, while the input itself had no
+ * accessible name. `$attrs` is bound to the `<input>`/`<textarea>` below instead,
+ * which is where assistive technology looks. (`id` and `name` have props of their
+ * own; a caller-set `id` therefore still wins through `$attrs` on the control.)
+ */
+defineOptions({ inheritAttrs: false })
+
+const attrs = useAttrs()
+const generatedId = `field-${useId()}`
+/** A caller that passes its own `id` keeps it — and the label follows it there. */
+const id = computed(() => (attrs.id as string | undefined) || generatedId)
 const rowsValue = computed(() => (props.rows === undefined ? undefined : Number(props.rows)))
 const maxlengthValue = computed(() =>
   props.maxlength === undefined ? undefined : String(props.maxlength),
@@ -63,6 +78,7 @@ const inputClasses = computed(() => [
       />
       <textarea
         v-if="textarea"
+        v-bind="$attrs"
         :id="id"
         :name="name"
         :value="modelValue ?? ''"
@@ -78,6 +94,7 @@ const inputClasses = computed(() => [
       />
       <input
         v-else
+        v-bind="$attrs"
         :id="id"
         :name="name"
         :type="type"

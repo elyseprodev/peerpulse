@@ -30,6 +30,21 @@ describe('AppButton', () => {
 
     const internal = mount(AppButton, { props: { to: '/' }, slots: { default: 'Home' }, global })
     expect(internal.element.tagName).toBe('A')
+    // The href is not decoration: without it the element is not focusable, is not
+    // announced as a link, and cannot be opened in a new tab. A `href` bound as
+    // `undefined` alongside `to` used to remove the one RouterLink computed.
+    expect(internal.attributes('href')).toBe('#/')
+    expect(internal.text()).toBe('Home')
+  })
+
+  it('keeps button-only attributes off links and anchors', () => {
+    const internal = mount(AppButton, { props: { to: '/', type: 'submit', disabled: true }, slots: { default: 'Home' }, global })
+    expect(internal.attributes('href')).toBe('#/')
+    expect(internal.attributes('type')).toBeUndefined()
+    expect(internal.attributes('disabled')).toBeUndefined()
+
+    const external = mount(AppButton, { props: { href: 'https://example.org', type: 'submit' }, slots: { default: 'Docs' }, global })
+    expect(external.attributes('type')).toBeUndefined()
   })
 
   it('disables interaction while loading and marks the state for assistive tech', () => {
@@ -91,6 +106,26 @@ describe('AppInput', () => {
     expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual(['Berlin'])
   })
 
+  it('forwards caller attributes to the control, not the wrapper', () => {
+    // With `inheritAttrs` left on, `aria-label` landed on the outer div: a search
+    // box looked labelled in the source and had no accessible name at all.
+    const wrapper = mount(AppInput, {
+      props: { modelValue: '' },
+      attrs: { 'aria-label': 'Search members', autocomplete: 'off', inputmode: 'search', id: 'member-search' },
+    })
+    const input = wrapper.find('input')
+    expect(wrapper.attributes('aria-label')).toBeUndefined()
+    expect(input.attributes('aria-label')).toBe('Search members')
+    expect(input.attributes('autocomplete')).toBe('off')
+    expect(input.attributes('inputmode')).toBe('search')
+    expect(input.attributes('id')).toBe('member-search')
+  })
+
+  it('forwards caller attributes to a textarea too', () => {
+    const wrapper = mount(AppInput, { props: { modelValue: '', textarea: true }, attrs: { 'aria-label': 'Your note' } })
+    expect(wrapper.find('textarea').attributes('aria-label')).toBe('Your note')
+  })
+
   it('accepts string row counts on a textarea (static template attributes)', () => {
     const wrapper = mount(AppInput, { props: { modelValue: '', textarea: true, rows: '4', maxlength: '400' } })
     const textarea = wrapper.find('textarea')
@@ -114,6 +149,12 @@ describe('AppSelect', () => {
   it('keeps the selected numeric option selected', () => {
     const wrapper = mount(AppSelect, { props: { modelValue: 60, options } })
     expect((wrapper.find('select').element as HTMLSelectElement).value).toBe('60')
+  })
+
+  it('forwards caller attributes to the select itself', () => {
+    const wrapper = mount(AppSelect, { props: { modelValue: 30, options }, attrs: { 'aria-label': 'Sort results' } })
+    expect(wrapper.attributes('aria-label')).toBeUndefined()
+    expect(wrapper.find('select').attributes('aria-label')).toBe('Sort results')
   })
 })
 

@@ -67,6 +67,7 @@ const SECTIONS = [
 <template>
   <div class="pp-container py-14">
     <SectionHeading
+      as="h1"
       eyebrow="Terms of exchange"
       title="The rules that make a moneyless exchange work"
       description="Short version: trade time fairly, be honest about what you teach, and never treat Time Tokens as money. The detail follows."

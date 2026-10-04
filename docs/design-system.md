@@ -129,6 +129,32 @@ Non-negotiable rules, all exercised in `tests/unit/components.spec.ts`:
 8. **Media in calls:** camera/mic controls are buttons with `aria-pressed`, and the connection state is
    announced in a polite live region so a screen-reader user knows when the peer connects.
 
+### 5.1 Rules the audit added
+
+`tests/unit/a11y.spec.ts` walks every route in the real app and checks the rendered DOM against the
+machine-checkable parts of WCAG 2.1 AA (one `h1`, no skipped heading levels, every control named, every input
+labelled, no duplicate ids, no positive `tabindex`, no `aria-live="false"`, no bare `<a>`). Four rules came out
+of writing it, and each one is a mistake that is invisible in a screenshot:
+
+1. **A component that renders `<component :is>` must not pass attributes bound to `undefined`.** `AppButton`
+   passed `:href="href"` alongside `:to="to"`; `RouterLink` renders its own `href` and spreads the remaining
+   attributes over it, so the `undefined` *removed* the href it had just computed. Every `<AppButton to="...">`
+   in the app — 39 of them, including "Sign in", "Join course" and "Book a session" — rendered an anchor that a
+   keyboard could not reach and a screen reader did not call a link. Mouse clicks still worked, which is why it
+   survived every manual walkthrough. Buttons now bind only the attributes their chosen element understands.
+2. **Caller attributes belong on the control, not on the wrapper.** `AppInput` and `AppSelect` render a wrapper
+   `<div>`; with `inheritAttrs` on by default, `aria-label="Search members"` landed on that div and the input
+   itself had no accessible name. Both set `inheritAttrs: false` and bind `$attrs` to the `<input>`, `<textarea>`
+   or `<select>` — and a caller-supplied `id` now wins, with the `<label for>` following it.
+3. **Headings are structure, not size.** The five hero headings on `/`, `/how-it-works`, `/privacy`, `/terms`
+   and `/community-guidelines` were `h2`s, so those documents had no `h1` at all. `SectionHeading` takes
+   `as="h1" | "h2" | "h3"` (default `h2`), and card titles are `h2`s — a listing is a peer of the page, not a
+   subsection of one.
+4. **Decorative controls are not controls.** A read-only star rating rendered five disabled `<button>`s per
+   card: 275 unnamed buttons on the marketplace alone, announced as "button, dimmed" five times per listing.
+   Read-only ratings render as `aria-hidden` spans inside a labelled `role="img"`, and only the interactive
+   variant uses real radio buttons.
+
 ---
 
 ## 6. Page-by-page wireframes

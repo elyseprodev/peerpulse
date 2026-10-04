@@ -48,18 +48,28 @@ const classes = computed(() => [
 ])
 
 const tag = computed(() => (props.to ? RouterLink : props.href ? 'a' : 'button'))
+
+/**
+ * Bind only the props the chosen element understands, and never bind one to
+ * `undefined`.
+ *
+ * This is subtler than it looks. `RouterLink` renders its own `href` and spreads
+ * the remaining attributes over it, so passing `href: undefined` — which is what
+ * `:href="href"` does for a router link — *removes the href it just computed*.
+ * An anchor without an href is not focusable, not announced as a link and cannot
+ * be opened in a new tab; the only thing that still worked was a mouse click,
+ * because RouterLink's click handler does not need the attribute. Keyboard users
+ * could not reach a single one of these buttons, and that is invisible to anyone
+ * testing with a mouse.
+ */
+const linkProps = computed(() => (props.to ? { to: props.to } : props.href ? { href: props.href } : {}))
+const buttonProps = computed(() =>
+  props.to || props.href ? {} : { type: props.type, disabled: props.disabled || props.loading },
+)
 </script>
 
 <template>
-  <component
-    :is="tag"
-    :to="to"
-    :href="href"
-    :type="to || href ? undefined : type"
-    :disabled="to || href ? undefined : disabled || loading"
-    :aria-busy="loading || undefined"
-    :class="classes"
-  >
+  <component :is="tag" v-bind="{ ...linkProps, ...buttonProps }" :aria-busy="loading || undefined" :class="classes">
     <span
       v-if="loading"
       class="size-4 animate-spin rounded-full border-2 border-current border-t-transparent"
