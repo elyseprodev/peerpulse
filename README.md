@@ -44,7 +44,7 @@ database through `localStorage`.
 | `npm run dev` | Vite dev server on `0.0.0.0:5173` (local backend) |
 | `npm run build` | Typecheck (`vue-tsc`) then build to `dist/` |
 | `npm run typecheck` | Strict TypeScript check of app, shared and tests |
-| `npm test` | Vitest unit + integration suite (193 tests) |
+| `npm test` | Vitest unit + integration suite (202 tests) |
 | `cd functions && npm test` | Cloud Functions, executed against a real Admin SDK (43 tests) |
 | `npm run test:rules` | Firestore emulator security-rules suite (**needs a JDK**) |
 | `npm run sync:shared` | Mirror `shared/*` into `functions/src/shared/` |
@@ -120,7 +120,7 @@ Honesty is a feature of this repository, so it is stated on the front page:
 
 **Verified in this repository**
 
-- 193 unit/integration tests pass (`npm test`): the token maths and its boundaries, booking conflicts and
+- 202 unit/integration tests pass (`npm test`): the token maths and its boundaries, booking conflicts and
   lifecycle, attendance verification and every settlement outcome, the whole reference backend, the
   accessibility-relevant behaviour of the UI primitives, a route smoke test that mounts the real app and walks
   every route in the table (guards included) asserting that each one renders without a render error, and an
@@ -129,7 +129,9 @@ Honesty is a feature of this repository, so it is stated on the front page:
   seed-integrity audit that re-derives every counter, score and balance in the demo world from the data behind
   it (that audit found two demo-data defects; the seed now derives its counters through the same shared helpers
   the engines use), a WebRTC negotiation suite that exercises offerer election, glare, the ICE queue and
-  teardown with a fake peer connection, a security-rules lint that parses `firestore.rules` and fails if a
+  teardown with a fake peer connection, a navigation-integrity suite that resolves every route-shaped string
+  literal in the source *and* every anchor the pages actually render (a typo'd CTA or a renamed route turns it
+  red), a security-rules lint that parses `firestore.rules` and fails if a
   client write appears on a token-bearing collection, on an undocumented path, or anywhere an administrator
   was not allowed to write one either (verified by mutation — four deliberately loosened rules, four red
   suites), and an accessibility audit that walks every route checking the
