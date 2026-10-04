@@ -1,0 +1,8 @@
+# Cloud Functions dependencies and build output
+node_modules/
+/lib/
+*.log
+
+# Local environment for the functions runtime (TURN secrets etc.)
+.env
+.env.local
