@@ -496,6 +496,42 @@ describe('local backend: governance', () => {
     expect(metrics.tokensSettled).toBeGreaterThan(0)
   })
 
+  it('keeps a private profile out of discovery while its direct link still resolves', async () => {
+    // FR-4. Discovery filters on the privacy flags; a profile that opted out must
+    // not appear in a list or a search, and must not be reachable by browsing.
+    await signInAs('demo_sam')
+    const before = await backend.listMembers()
+    expect(before.map((member) => member.uid)).toContain('demo_jonas')
+
+    // The member makes the change on their own profile — nobody else can.
+    await signInAs('demo_jonas')
+    await backend.saveProfile('demo_jonas', {
+      privacy: {
+        profileVisibility: 'private',
+        showEmail: false,
+        showAvailability: false,
+        allowDirectRequests: false,
+        appearInDiscovery: false,
+      },
+    })
+
+    await signInAs('demo_sam')
+    const after = await backend.listMembers()
+    expect(after.map((member) => member.uid), 'a private profile must vanish from discovery').not.toContain(
+      'demo_jonas',
+    )
+    expect(
+      (await backend.listMembers({ query: 'jonas' })).map((member) => member.uid),
+      'and from search',
+    ).not.toContain('demo_jonas')
+
+    // A direct link still resolves: the privacy switch governs discovery, not
+    // access — a deliberate product decision recorded in docs/security.md §2, and
+    // the reason a profile document holds nothing the member would not publish.
+    const direct = await backend.getUser('demo_jonas')
+    expect(direct?.uid).toBe('demo_jonas')
+  })
+
   it('exposes communities, posts and comments to signed-in members', async () => {
     const communities = await backend.listCommunities()
     expect(communities.length).toBeGreaterThan(0)

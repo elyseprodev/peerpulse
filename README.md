@@ -44,7 +44,7 @@ database through `localStorage`.
 | `npm run dev` | Vite dev server on `0.0.0.0:5173` (local backend) |
 | `npm run build` | Typecheck (`vue-tsc`) then build to `dist/` |
 | `npm run typecheck` | Strict TypeScript check of app, shared and tests |
-| `npm test` | Vitest unit + integration suite (212 tests) |
+| `npm test` | Vitest unit + integration suite (222 tests) |
 | `cd functions && npm test` | Cloud Functions, executed against a real Admin SDK (43 tests) |
 | `npm run test:rules` | Firestore emulator security-rules suite (**needs a JDK**) |
 | `npm run sync:shared` | Mirror `shared/*` into `functions/src/shared/` |
@@ -102,6 +102,7 @@ Firestore ◀── rules: no client can move a token ──┘
 | Document | Contents |
 | --- | --- |
 | [`docs/requirements.md`](docs/requirements.md) | Roles, 34 functional requirements, the business rules and their enforcement, 8 user journeys |
+| [`docs/requirements-coverage.md`](docs/requirements-coverage.md) | Every requirement mapped to the code that implements it, the test that proves it, and what is *not* proven — 17 verified, 16 partial, 1 not implemented (Web Push), machine-checked against the repository |
 | [`docs/architecture.md`](docs/architecture.md) | Layers and trust boundaries, sequence diagrams for settlement and calls, deployment topology |
 | [`docs/firestore-data-model.md`](docs/firestore-data-model.md) | Every collection with a sample record, access matrix, indexes, TTL, invariants |
 | [`docs/webrtc-signaling.md`](docs/webrtc-signaling.md) | Firestore signalling, glare handling, ICE/TURN, presence and attendance, failure table, two-tab test script |
@@ -120,7 +121,7 @@ Honesty is a feature of this repository, so it is stated on the front page:
 
 **Verified in this repository**
 
-- 212 unit/integration tests pass (`npm test`): the token maths and its boundaries, booking conflicts and
+- 222 unit/integration tests pass (`npm test`): the token maths and its boundaries, booking conflicts and
   lifecycle, attendance verification and every settlement outcome, the whole reference backend, the
   accessibility-relevant behaviour of the UI primitives, a route smoke test that mounts the real app and walks
   every route in the table (guards included) asserting that each one renders without a render error, and an

@@ -109,12 +109,17 @@ async function resetDemo(): Promise<void> {
   ui.success('Demo data reset', 'The example exchange has been rebuilt.')
 }
 
+/**
+ * Browser push is deliberately not implemented. Firebase Cloud Messaging needs a
+ * service worker, a token registration and a sending function, none of which can
+ * be exercised in this build (no browser, no real project, no VAPID key), so the
+ * UI states the gap instead of reporting progress that is not happening.
+ * `docs/requirements-coverage.md` FR-34 lists exactly what remains.
+ */
 async function enablePush(): Promise<void> {
   ui.info(
-    'Push notifications',
-    env.fcmVapidKey
-      ? 'Requesting browser permission…'
-      : 'Configure VITE_FCM_VAPID_KEY and deploy the Cloud Function that sends Web Push messages to enable this.',
+    'Browser push is not implemented yet',
+    'In-app notifications work today. Web Push needs a service worker, a token registration and a sending function — see FR-34 in docs/requirements-coverage.md.',
   )
 }
 
@@ -236,11 +241,21 @@ function requestDeletion(): void {
       <section class="pp-card p-6">
         <h2 class="font-display text-lg font-semibold text-ink">Notifications</h2>
         <p class="mt-2 text-sm text-muted">
-          In-app notifications are always on. Browser push uses Firebase Cloud Messaging and needs to be configured for
-          the deployment before it can be enabled.
+          In-app notifications are always on and recorded in Firestore; every event that matters is also announced by
+          email or on the dashboard it belongs to. <strong class="font-semibold text-ink">Browser push is not
+          implemented yet</strong> — the client-side registration and the sending function are deployment-time work,
+          tracked as FR-34 in the requirements coverage.
         </p>
         <div class="mt-4 flex flex-wrap gap-3">
-          <AppButton variant="secondary" icon="bell" @click="enablePush">Enable browser push</AppButton>
+          <AppButton
+            variant="secondary"
+            icon="bell"
+            :disabled="true"
+            title="Not implemented yet: needs a service worker, a token registration and a sending Cloud Function"
+            @click="enablePush"
+          >
+            Browser push — not yet available
+          </AppButton>
           <RouterLink to="/notifications" class="inline-flex items-center gap-2 text-sm text-brand-bright hover:underline">
             View in-app notifications <AppIcon name="chevron-right" :size="14" />
           </RouterLink>
