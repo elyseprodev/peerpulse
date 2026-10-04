@@ -95,7 +95,8 @@ export async function startHarness(): Promise<void> {
 
   world.admin = admin
   world.db = admin.firestore()
-  const endpoints: Record<string, unknown> = { ...bookings, ...rooms, ...social, ...adminFns, ...index }
+  const triggers = (await import('../src/triggers')) as unknown as Record<string, unknown>
+  const endpoints: Record<string, unknown> = { ...bookings, ...rooms, ...social, ...adminFns, ...index, ...triggers }
   world.fns = Object.fromEntries(
     Object.entries(endpoints)
       .filter(([, value]) => typeof value === 'function')
@@ -270,6 +271,45 @@ export async function readWallet(uid: string): Promise<Record<string, unknown>> 
 export async function ledger(): Promise<Array<Record<string, unknown>>> {
   const snapshot = await world.db!.collection('tokenTransactions').get()
   return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }))
+}
+
+/**
+ * Invoke a v1 trigger the way the runtime does: `run(data, context)`. The auth
+ * trigger's data is an `AuthUserRecord`, so only the fields it reads are filled.
+ */
+export async function invokeAuthTrigger(
+  uid: string,
+  input: { email?: string; displayName?: string } = {},
+): Promise<void> {
+  const trigger = world.fns?.onUserCreated
+  if (!trigger) throw new Error('onUserCreated is not loaded')
+  const run = (trigger as unknown as { run: (data: unknown, context: unknown) => Promise<unknown> }).run
+  await run(
+    {
+      uid,
+      email: input.email ?? `${uid}@peerpulse.app`,
+      displayName: input.displayName ?? 'New Member',
+      photoURL: null,
+      emailVerified: false,
+      disabled: false,
+      metadata: { creationTime: new Date().toISOString(), lastSignInTime: new Date().toISOString() },
+      providerData: [],
+      toJSON: () => ({}),
+    },
+    {
+      eventId: `evt_${uid}`,
+      eventType: 'providers/firebase.auth/eventTypes/user.create',
+      timestamp: new Date().toISOString(),
+      params: {},
+      resource: { name: `projects/${PROJECT_ID}/locations/europe-west1`, service: 'firebaseauth.googleapis.com' },
+    },
+  )
+}
+
+/** Runs the scheduled settlement sweep body directly. */
+export async function runSettlementSweep(): Promise<{ settled: string[]; skipped: string[] }> {
+  const { autoSettleFinishedSessions } = await import('../src/lib/settlement')
+  return autoSettleFinishedSessions()
 }
 
 export async function readBooking(id: string): Promise<Record<string, unknown>> {

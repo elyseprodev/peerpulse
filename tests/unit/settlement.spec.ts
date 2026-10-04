@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildRefundWrites,
+  listingAfterBooking,
+  listingAfterReview,
+  listingAfterSettlement,
+  statsAfterReview,
+  statsAfterSettlement,
   buildSettlementRecord,
   buildSettlementWrites,
   dedupeLedger,
@@ -435,6 +440,82 @@ describe('ledger construction', () => {
     expect(record.idempotencyKey).toBe('settlement_bk_settle_1')
     expect(record.status).toBe('settled')
     expect(record.verifiedMinutes).toBe(60)
+  })
+
+  it('adds a settled session to the right side of both members’ stats', () => {
+    const stats = {
+      sessionsCompleted: 4,
+      sessionsTaught: 2,
+      teachingHours: 3.5,
+      learningHours: 1.5,
+      ratingSum: 18,
+      reviewCount: 4,
+      tokensEarned: 7.25,
+      tokensSpent: 2.75,
+    }
+    const plan = { creditAmount: 1.5, debitAmount: 1.5 }
+
+    const teacher = statsAfterSettlement(stats, 'teacher', 90, plan)
+    expect(teacher).toMatchObject({ sessionsCompleted: 5, sessionsTaught: 3, teachingHours: 5, tokensEarned: 8.75 })
+    expect(teacher.learningHours).toBe(1.5)
+
+    const learner = statsAfterSettlement(stats, 'learner', 90, plan)
+    expect(learner).toMatchObject({ sessionsCompleted: 5, learningHours: 3, tokensSpent: 4.25 })
+    expect(learner.sessionsTaught).toBe(2)
+    expect(learner.teachingHours).toBe(3.5)
+  })
+
+  it('charges a partial settlement the debited amount, not the nominal one', () => {
+    // The learner could only cover 0.5 of a 1.5-token session: the teacher is
+    // credited what was taken, and both ledgers say so.
+    const stats = {
+      sessionsCompleted: 0,
+      sessionsTaught: 0,
+      teachingHours: 0,
+      learningHours: 0,
+      ratingSum: 0,
+      reviewCount: 0,
+      tokensEarned: 0,
+      tokensSpent: 0,
+    }
+    const teacher = statsAfterSettlement(stats, 'teacher', 60, { creditAmount: 0.5, debitAmount: 0.5 })
+    const learner = statsAfterSettlement(stats, 'learner', 60, { creditAmount: 0.5, debitAmount: 0.5 })
+    expect(teacher.tokensEarned).toBe(0.5)
+    expect(learner.tokensSpent).toBe(0.5)
+    expect(teacher.teachingHours).toBe(1)
+  })
+
+  it('rounds hours to one decimal, like every hour figure in the fixtures', () => {
+    const stats = {
+      sessionsCompleted: 0,
+      sessionsTaught: 0,
+      teachingHours: 0,
+      learningHours: 0,
+      ratingSum: 0,
+      reviewCount: 0,
+      tokensEarned: 0,
+      tokensSpent: 0,
+    }
+    // A 20-minute minimum session is a third of an hour.
+    expect(statsAfterSettlement(stats, 'teacher', 20, { creditAmount: 0.33, debitAmount: 0.33 }).teachingHours).toBe(0.3)
+    expect(statsAfterSettlement(stats, 'learner', 75, { creditAmount: 1.25, debitAmount: 1.25 }).learningHours).toBe(1.3)
+  })
+
+  it('counts reviews and listing activity under the names the UI reads', () => {
+    const stats = {
+      sessionsCompleted: 0,
+      sessionsTaught: 0,
+      teachingHours: 0,
+      learningHours: 0,
+      ratingSum: 4,
+      reviewCount: 1,
+      tokensEarned: 0,
+      tokensSpent: 0,
+    }
+    expect(statsAfterReview(stats, 5)).toMatchObject({ ratingSum: 9, reviewCount: 2 })
+    expect(listingAfterReview({ ratingSum: 4, reviewCount: 1 }, 5)).toEqual({ ratingSum: 9, reviewCount: 2 })
+    expect(listingAfterBooking({ bookingCount: 3 })).toEqual({ bookingCount: 4 })
+    expect(listingAfterSettlement({ completedCount: 3 })).toEqual({ completedCount: 4 })
   })
 
   it('drops duplicate ledger entries when merging batches', () => {

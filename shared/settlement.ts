@@ -23,6 +23,7 @@ import type {
   SettlementRecord,
   TimeWindow,
   TokenTransactionType,
+  UserStats,
   Wallet,
 } from './domain'
 import { roundTokens } from './tokenPolicy'
@@ -489,4 +490,83 @@ export function dedupeLedger<T extends { id: string }>(entries: T[], existingIds
     out.push(entry)
   }
   return out
+}
+
+/* ───────────────────────── denormalised counters ───────────────────────────
+ *
+ * The profiles and listings carry counters that the UI reads directly
+ * (dashboard goals, rating stars, "N completed sessions", the marketplace
+ * ranking). They are derivable from the ledger and the bookings, but reading
+ * every booking to render a card is not, so they are denormalised — and a
+ * denormalised counter is only as good as the write path that maintains it.
+ *
+ * Both engines call these, so the local reference backend and the deployed
+ * functions cannot drift on how a number is computed. The semantics mirror the
+ * demo seed, which is the readable statement of intent:
+ *   - a settled session counts for both members, whatever the rounding;
+ *   - hours are converted at 1 decimal place, like the seed's fixtures;
+ *   - a refund or a blocked attempt moves no counter: no verified session, no
+ *     completed hour. A steward's refund *after* a settlement deliberately does
+ *     not un-count the hour — the work happened, the tokens were returned.
+ */
+
+export interface CounterWrite<T> {
+  next: T
+  changed: boolean
+}
+
+/**
+ * Adds one settled session to a member's stats, from that member's side. Hours
+ * round to one decimal (like every hour figure in the fixtures) and tokens go
+ * through `roundTokens`; the amounts are the plan's credit and debit, which is
+ * what the learner was actually charged when a settlement rounds down.
+ */
+export function statsAfterSettlement(
+  stats: UserStats,
+  side: 'teacher' | 'learner',
+  durationMinutes: number,
+  amounts: { creditAmount: number; debitAmount: number },
+): UserStats {
+  const hours = Math.round((durationMinutes / 60) * 10) / 10
+  return side === 'teacher'
+    ? {
+        ...stats,
+        sessionsCompleted: stats.sessionsCompleted + 1,
+        sessionsTaught: stats.sessionsTaught + 1,
+        teachingHours: roundTokens(stats.teachingHours + hours),
+        tokensEarned: roundTokens(stats.tokensEarned + amounts.creditAmount),
+      }
+    : {
+        ...stats,
+        sessionsCompleted: stats.sessionsCompleted + 1,
+        learningHours: roundTokens(stats.learningHours + hours),
+        tokensSpent: roundTokens(stats.tokensSpent + amounts.debitAmount),
+      }
+}
+
+/** Adds one review to the reviewed member's rating aggregate. */
+export function statsAfterReview(stats: UserStats, rating: number): UserStats {
+  return {
+    ...stats,
+    ratingSum: roundTokens(stats.ratingSum + rating),
+    reviewCount: stats.reviewCount + 1,
+  }
+}
+
+/** Adds one review to the reviewed listing's score. */
+export function listingAfterReview(listing: { ratingSum: number; reviewCount: number }, rating: number) {
+  return {
+    ratingSum: roundTokens(listing.ratingSum + rating),
+    reviewCount: listing.reviewCount + 1,
+  }
+}
+
+/** Adds one booking to a listing's request counter. */
+export function listingAfterBooking(listing: { bookingCount: number }) {
+  return { bookingCount: listing.bookingCount + 1 }
+}
+
+/** Adds one completed session to a listing's counter. */
+export function listingAfterSettlement(listing: { completedCount: number }) {
+  return { completedCount: listing.completedCount + 1 }
 }

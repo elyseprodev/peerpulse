@@ -21,15 +21,14 @@
  *   firebase deploy --only functions,firestore:rules,firestore:indexes,storage
  */
 import { initializeAdminApp } from './lib/app'
-import { getAuth } from 'firebase-admin/auth'
 import { Timestamp } from 'firebase-admin/firestore'
 import { setGlobalOptions, logger } from 'firebase-functions/v2'
-import { onCall, HttpsError, type CallableRequest } from 'firebase-functions/v2/https'
+import { onCall, type CallableRequest } from 'firebase-functions/v2/https'
 import { onSchedule } from 'firebase-functions/v2/scheduler'
 import { DEFAULT_PLATFORM_CONFIG, signupGrantAmount, type PlatformConfig, type Wallet } from './shared'
 import { fromSnapshot, toFirestore } from './lib/convert'
 import { notifyNow } from './lib/notify'
-import { COLLECTIONS, db, nowIso } from './lib/refs'
+import { COLLECTIONS, db, nowIso, requireAdmin } from './lib/refs'
 import { autoSettleFinishedSessions } from './lib/settlement'
 
 // The app is initialised by `./lib/app` — imported first by `./lib/refs`, which binds
@@ -107,12 +106,12 @@ export const healthcheck = onCall(async () => {
  * Safe to re-run: it only ever adds what is missing.
  */
 export const bootstrapPlatform = onCall(async (request: CallableRequest<Record<string, never>>) => {
-  const uid = request.auth?.uid
-  if (!uid) throw new HttpsError('unauthenticated', 'Sign in to continue.')
-  const user = await getAuth().getUser(uid)
-  if (user.customClaims?.admin !== true) {
-    throw new HttpsError('permission-denied', 'Only an administrator may bootstrap the platform.')
-  }
+  // The same guard as every other administrative callable. Reading the claim
+  // from the live user record instead would be stricter for one function and
+  // inconsistent for the platform: a steward whose claim was removed keeps a
+  // usable ID token until it expires (see docs/security.md on revocation), and
+  // that window is a property of the whole admin surface, not of this one call.
+  const uid = requireAdmin(request)
 
   const reference = db.doc(`${COLLECTIONS.config}/platform`)
   const existing = fromSnapshot<PlatformConfig>(await reference.get())

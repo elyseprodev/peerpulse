@@ -18,8 +18,13 @@ import {
   canAfford,
   computeTokenAmount,
   findConflict,
+  listingAfterBooking,
+  listingAfterReview,
+  listingAfterSettlement,
   planSettlement,
   resolveCancellation,
+  statsAfterReview,
+  statsAfterSettlement,
   validateBookingWindow,
   validateSessionDuration,
 } from '@shared'
@@ -193,7 +198,7 @@ export function createBooking(db: LocalDatabase, input: CreateBookingInput, acto
   }
 
   db.bookings[bookingId] = booking
-  skill.bookingCount += 1
+  skill.bookingCount = listingAfterBooking(skill).bookingCount
 
   if (autoConfirm) {
     createRoomForBooking(db, booking, teacher)
@@ -685,6 +690,13 @@ export function settleBooking(
   db.wallets[booking.learnerUid] = write.nextLearner
   db.settlements[record.id] = record
 
+  // Mirrors the Cloud Functions settlement. The counters are denormalised for
+  // the dashboard, the stars and the marketplace ranking, and they only count a
+  // session that verifiably happened — a refund or a blocked attempt is not one.
+  // The arithmetic is shared, so the two engines cannot drift apart.
+  const listing = db.skills[booking.skillId]
+  if (listing) listing.completedCount = listingAfterSettlement(listing).completedCount
+
   booking.status = 'completed'
   booking.settlement = {
     state: plan.outcome === 'partial' ? 'partial' : 'settled',
@@ -704,13 +716,8 @@ export function settleBooking(
 
   const teacher = requireUser(db, booking.teacherUid)
   const learner = requireUser(db, booking.learnerUid)
-  teacher.stats.sessionsCompleted += 1
-  teacher.stats.sessionsTaught += 1
-  teacher.stats.teachingHours = Math.round((teacher.stats.teachingHours + booking.durationMinutes / 60) * 10) / 10
-  teacher.stats.tokensEarned = Math.round((teacher.stats.tokensEarned + plan.creditAmount) * 10_000) / 10_000
-  learner.stats.sessionsCompleted += 1
-  learner.stats.learningHours = Math.round((learner.stats.learningHours + booking.durationMinutes / 60) * 10) / 10
-  learner.stats.tokensSpent = Math.round((learner.stats.tokensSpent + plan.debitAmount) * 10_000) / 10_000
+  teacher.stats = statsAfterSettlement(teacher.stats, 'teacher', booking.durationMinutes, plan)
+  learner.stats = statsAfterSettlement(learner.stats, 'learner', booking.durationMinutes, plan)
 
   pushNotification(db, {
     uid: booking.teacherUid,
@@ -741,6 +748,11 @@ export function settleBooking(
     `bookings|${booking.learnerUid}`,
     `wallet|${booking.teacherUid}`,
     `wallet|${booking.learnerUid}`,
+    // The settlement also moves the listing's completed-session count and both
+    // members' stats, so their subscribers have to be told.
+    'skills',
+    `users|${booking.teacherUid}`,
+    `users|${booking.learnerUid}`,
     'settlements',
   )
   return { booking, settlement: record, notices }
@@ -884,14 +896,14 @@ export function createReview(db: LocalDatabase, input: CreateReviewInput): Revie
   db.reviews[id] = review
 
   const subject = db.users[subjectUid]
-  if (subject) {
-    subject.stats.ratingSum += review.rating
-    subject.stats.reviewCount += 1
-  }
+  if (subject) subject.stats = statsAfterReview(subject.stats, review.rating)
+  // Only a review about the listing's owner scores the listing; a teacher's
+  // review of a learner belongs to the learner's profile alone.
   const skill = db.skills[booking.skillId]
-  if (skill) {
-    skill.ratingSum += review.rating
-    skill.reviewCount += 1
+  if (skill && skill.ownerUid === subjectUid) {
+    const nextListing = listingAfterReview(skill, review.rating)
+    skill.ratingSum = nextListing.ratingSum
+    skill.reviewCount = nextListing.reviewCount
   }
 
   const author = requireUser(db, input.authorUid)

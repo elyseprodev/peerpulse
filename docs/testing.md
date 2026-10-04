@@ -12,11 +12,11 @@ npm ci                      # install (root)
 cd functions && npm install # install the functions project, then `cd ..`
 
 npm run typecheck           # vue-tsc, strict, app + shared + tests
-npm test                    # vitest, jsdom, tests/unit/**  → 112 tests
+npm test                    # vitest, jsdom, tests/unit/**  → 119 tests
 npm run build               # production build to dist/
 npm run dev                 # local mode at http://localhost:5173 (binds 0.0.0.0)
 
-cd functions && npm test    # Cloud Functions, executed for real → 31 tests
+cd functions && npm test    # Cloud Functions, executed for real → 43 tests
 cd functions && npm run typecheck   # tsc over src + tests
 
 npm run sync:shared         # mirror shared/* into functions/src/shared
@@ -31,7 +31,7 @@ npm run deploy:hosting      # builds the app, deploys
 
 ---
 
-## 2. Unit suites (112 tests, all passing locally)
+## 2. Unit suites (119 tests, all passing locally)
 
 | Suite | Tests | Proves |
 | --- | --- | --- |
@@ -47,7 +47,7 @@ touches Firebase or the network.
 
 ---
 
-## 3. Cloud Functions suite (31 tests, executed against a real Admin SDK)
+## 3. Cloud Functions suite (43 tests, executed against a real Admin SDK)
 
 `functions/tests/functions.spec.ts` runs the **actual callables** — the real
 `firebase-admin` SDK talking to `firebase-mocker`, a Node implementation of the
@@ -65,6 +65,9 @@ subcollections and `runTransaction` all go through the SDK. See
 | reviews and disputes | a review is refused for a session that never happened and refused to a non-participant; a dispute cannot be resolved without the steward claim |
 | administration | every administrative call is refused without the claim; a wallet adjustment without a written reason is refused; with one it changes the balance and writes an `admin_adjustment` row naming the steward; an overdraft is refused; the policy rejects invalid values and stores a readable diff with the changer's uid; a member can be promoted only by a steward; metrics reach a steward |
 | healthcheck & exports | the healthcheck reports the seeded policy; every name in the **client's** `CALLABLE` map exists as an exported function (the test reads the map out of the client source, so a rename on either side fails here) |
+| provisioning & sweep | `onUserCreated` runs with a real `AuthUserRecord`: it writes the profile, a wallet holding the grant, one ledger row and a welcome notification, and a retried trigger cannot grant twice. The hourly sweep settles an abandoned finished session and is a no-op the second time. |
+| counters | a booking increments the listing's request count and moves nothing else; a settlement increments the listing's completed count and both members' session/hour/token stats by exactly the plan's amounts; a blocked attempt changes none of them; a review updates `stats.reviewCount` (the name the UI reads) and only scores the listing when it is *about* the listing's owner. |
+| disputes & moderation | a steward's refund returns the learner's tokens and reverses the teacher's, naming the steward in the ledger; releasing a settlement moves nothing; upholding a report hides the content; dismissing one touches nothing; `bootstrapPlatform` seeds the policy and backfills missing wallets, and re-running adds nothing. |
 
 What this suite does **not** cover: Security Rules (they are enforced by
 Firestore, not by the functions), and Firestore's multi-writer transaction

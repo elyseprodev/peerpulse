@@ -44,8 +44,8 @@ database through `localStorage`.
 | `npm run dev` | Vite dev server on `0.0.0.0:5173` (local backend) |
 | `npm run build` | Typecheck (`vue-tsc`) then build to `dist/` |
 | `npm run typecheck` | Strict TypeScript check of app, shared and tests |
-| `npm test` | Vitest unit + integration suite (112 tests) |
-| `cd functions && npm test` | Cloud Functions, executed against a real Admin SDK (31 tests) |
+| `npm test` | Vitest unit + integration suite (119 tests) |
+| `cd functions && npm test` | Cloud Functions, executed against a real Admin SDK (43 tests) |
 | `npm run test:rules` | Firestore emulator security-rules suite (**needs a JDK**) |
 | `npm run sync:shared` | Mirror `shared/*` into `functions/src/shared/` |
 | `npm run check:shared` | Fail if those copies have drifted |
@@ -120,11 +120,12 @@ Honesty is a feature of this repository, so it is stated on the front page:
 
 **Verified in this repository**
 
-- 112 unit/integration tests pass (`npm test`): the token maths and its boundaries, booking conflicts and
+- 119 unit/integration tests pass (`npm test`): the token maths and its boundaries, booking conflicts and
   lifecycle, attendance verification and every settlement outcome, the whole reference backend, the
   accessibility-relevant behaviour of the UI primitives, and a route smoke test that mounts the real app and
   walks every route in the table (guards included) asserting that each one renders without a render error.
-- 31 Cloud Functions tests pass (`cd functions && npm test`). The real callables run unmodified against a real
+- 43 Cloud Functions tests pass (`cd functions && npm test`). The real callables, the auth provisioning trigger
+  and the settlement sweep run unmodified against a real
   `firebase-admin` SDK (Firestore gRPC + Identity Toolkit, via `firebase-mocker`), and they assert the product's
   promises: a request moves no tokens; only the teacher may confirm; outsiders are refused everywhere; a
   settlement debits exactly what it credits, once, with deterministic ids and an auditable row; missing

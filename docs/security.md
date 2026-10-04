@@ -98,6 +98,13 @@ The Admin SDK bypasses rules, so each callable performs its own checks in this o
 
 1. **Authentication** — `requireUid(request)` throws `HttpsError('unauthenticated')`.
 2. **Role** — `requireAdmin(request)` reads the `admin` custom claim from the *token*, never from Firestore.
+   Every administrative path uses that one helper, `bootstrapPlatform` included, so there is exactly one
+   definition of "administrator" to audit. The trade-off is deliberate and platform-wide: a token stays valid
+   until it expires (about an hour), so a steward whose claim was removed keeps administrative access for at
+   most that long — revoke refresh tokens for the uid in the Firebase console, or with
+   `getAuth().revokeRefreshTokens(uid)`, when a removal has to bite immediately. The alternative — asking Auth
+   for the live user record on every call — adds a round trip per request and one more thing to keep in sync,
+   which is why the claim is read from the token.
 3. **Ownership / participation** — re-read the documents that matter and compare against `request.auth.uid`:
    - `createBooking` re-reads the listing (must be `published`), the config, both profiles and the conflicting
      bookings.
@@ -192,7 +199,7 @@ outsider, administrator and guest — and asserts, among others:
 - unmatched paths are denied by default.
 
 Independent of the rules, the **server-side authorization checks inside the callables** are now exercised
-for real: `functions/tests` runs the actual functions against a real `firebase-admin` SDK (31 tests) and
+for real: `functions/tests` runs the actual functions against a real `firebase-admin` SDK (43 tests) and
 asserts that an unauthenticated caller, a suspended member, an outsider, a non-participant and a member without
 the admin claim are each refused; that a wallet cannot be adjusted without a written reason; and that the
 policy rejects invalid values. That suite runs with `cd functions && npm test`.

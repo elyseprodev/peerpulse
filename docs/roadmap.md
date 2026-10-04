@@ -73,7 +73,7 @@
 | **Objective** | Tokens move exactly once, transparently, and only when a session demonstrably happened. |
 | **Deliverables** | Settlement planner + ledger builders (already in `shared/settlement.ts`); `endSession`, `confirmCompletion`, `settleSession`, `hourlySettlementSweep`; wallet and ledger UI; blocked/partial/refund surfacing. |
 | **Acceptance criteria** | Debit equals credit for every settlement; a second call is a no-op with a notice; attendance below the quorum blocks with `insufficient_verified_attendance`; a learner who can only cover part settles partially, floored to the increment, and the remainder is waived; a missing wallet does not crash the sweep; the sweep touches only `in_progress` bookings older than 24 h; the ledger row shows reason, policy code and resulting balance. |
-| **Status** | 🟡 implemented, unit-tested at the planner level (`tests/unit/settlement.spec.ts`) and integration-tested through the real transaction (`functions/tests`): one balanced pair of rows, deterministic ids, replay is a no-op, missing attendance blocks, partial settlement floors correctly. Still unrun against **real** Firestore (the mock is single-threaded). |
+| **Status** | 🟢 covered end to end in `functions/tests`: one balanced debit/credit pair, deterministic ids, replay is a no-op, missing attendance blocks, partial settlement floors correctly, and the denormalised counters on the listing and both profiles move by exactly the plan's amounts — and not at all when the attempt is blocked. Still unrun against **real** Firestore (the mock is single-threaded), so the concurrency story rests on the deterministic ids. |
 
 ### Week 7 — Community, moderation and dispute paths
 

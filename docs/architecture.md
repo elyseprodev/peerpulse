@@ -214,6 +214,11 @@ graph LR
    `participants` containing the caller.
 5. **No client-authored money** — no rule path writes `wallets`, `tokenTransactions` or `settlements`.
 6. **Auditability** — every ledger row names its actor (`createdBy`), its reason and its policy code.
+7. **Counters follow evidence** — the denormalised numbers the UI reads move only for work that verifiably
+   happened: a session counts on a listing and in both members' profiles when it settles (fully or partially),
+   never when an attempt is blocked or refunded. A steward's refund after a settlement deliberately does not
+   un-count the hour: the work happened, the tokens were returned. Both engines use the same pure helpers in
+   `shared/settlement.ts`, so the numbers cannot differ between local mode and production.
 
 ---
 

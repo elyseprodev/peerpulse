@@ -6,7 +6,7 @@
  * value treated as untrusted input. The client's only lifecycle write is opening
  * a dispute (see firestore.rules).
  */
-import { Timestamp, type DocumentData, type Transaction } from 'firebase-admin/firestore'
+import { FieldValue, Timestamp, type DocumentData, type Transaction } from 'firebase-admin/firestore'
 import { onCall, type CallableRequest } from 'firebase-functions/v2/https'
 import {
   BLOCKING_STATUSES,
@@ -201,6 +201,14 @@ export const createBooking = onCall(async (request: CallableRequest<CreateBookin
 
     await db.runTransaction(async (tx) => {
       tx.set(db.collection(COLLECTIONS.bookings).doc(bookingId), toFirestore(booking) as DocumentData)
+      // Denormalised for the marketplace and the profile listing card, and the
+      // reference backend counts a request at creation time — mirror that so the
+      // two implementations agree on what the number means.
+      tx.set(
+        db.collection(COLLECTIONS.skills).doc(skill.id),
+        { bookingCount: FieldValue.increment(1), updatedAt: Timestamp.now() },
+        { merge: true },
+      )
       notify(tx, bookingRequestedNotification(booking, teacher.displayName, learner.displayName))
     })
 

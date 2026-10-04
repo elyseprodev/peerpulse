@@ -27,11 +27,14 @@ import {
   call,
   clearWorld,
   forceInProgress,
+  invokeAuthTrigger,
   ledger,
   notificationsFor,
   readBooking,
   readWallet,
+  runSettlementSweep,
   seedAttendance,
+  SKILL_ID,
   seedWorld,
   startHarness,
   stopHarness,
@@ -517,5 +520,380 @@ describe('healthcheck and the export surface', () => {
     for (const name of ['hourlySettlementSweep', 'onUserCreated', 'healthcheck', 'bootstrapPlatform']) {
       expect(typeof index[name], `${name} must be exported`).toBe('function')
     }
+  })
+})
+
+/* ─────────────────────── the rest of the server surface ────────────────── */
+
+describe('account provisioning (onUserCreated)', () => {
+  const NEWCOMER = 'u_newcomer'
+
+  it('provisions a profile, a wallet with the grant, one ledger row and a welcome notification', async () => {
+    await world.admin!.auth().createUser({ uid: NEWCOMER, email: 'newcomer@peerpulse.app', password: 'peerpulse' })
+    await invokeAuthTrigger(NEWCOMER, { displayName: 'Nia Newcomer' })
+
+    const profile = await world.db!.doc(`users/${NEWCOMER}`).get()
+    expect(profile.exists).toBe(true)
+    expect(profile.data()).toMatchObject({ uid: NEWCOMER, displayName: 'Nia Newcomer', role: 'member', status: 'active' })
+
+    const wallet = await readWallet(NEWCOMER)
+    expect(wallet).toMatchObject({ balance: 3, lifetimeGranted: 3, policyVersion: '2026.1', updatedBy: 'system:signup' })
+
+    // Exactly one grant row, with the policy code and an auditable actor.
+    const rows = (await ledger()).filter((row) => row.uid === NEWCOMER)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({
+      id: `tx_signup_${NEWCOMER}`,
+      type: 'signup_grant',
+      direction: 'credit',
+      amount: 3,
+      policyCode: 'signup_grant',
+      createdBy: 'system:signup',
+      balanceAfter: 3,
+    })
+
+    const notifications = await notificationsFor(NEWCOMER)
+    expect(notifications.some((n) => n.type === 'token_grant')).toBe(true)
+  })
+
+  it('is idempotent — a retried trigger cannot grant a second time', async () => {
+    await world.admin!.auth().createUser({ uid: 'u_retry', email: 'retry@peerpulse.app', password: 'peerpulse' })
+    await invokeAuthTrigger('u_retry')
+    const first = await readWallet('u_retry')
+
+    await invokeAuthTrigger('u_retry')
+    await invokeAuthTrigger('u_retry')
+
+    expect((await readWallet('u_retry')).balance).toBe(first.balance)
+    expect((await ledger()).filter((row) => row.uid === 'u_retry')).toHaveLength(1)
+  })
+})
+
+describe('denormalised counters', () => {
+  it('counts the request on the listing, and the session on the listing and both profiles', async () => {
+    const listingBefore = (await world.db!.doc(`skills/${SKILL_ID}`).get()).data()!
+    const teacherBefore = (await world.db!.doc(`users/${TEACHER}`).get()).data()!
+    const learnerBefore = (await world.db!.doc(`users/${LEARNER}`).get()).data()!
+
+    const bookingId = await bookSession()
+    expect((await world.db!.doc(`skills/${SKILL_ID}`).get()).data()!.bookingCount).toBe(
+      (listingBefore.bookingCount as number) + 1,
+    )
+
+    await call('respondToBooking', { as: TEACHER, data: { bookingId, action: 'confirm' } })
+    await forceInProgress(bookingId, [LEARNER, TEACHER])
+    await seedAttendance(bookingId, [
+      { uid: TEACHER, startMinutesFromNow: -120, minutes: 60 },
+      { uid: LEARNER, startMinutesFromNow: -120, minutes: 60 },
+    ])
+    const settled = await call<{ settlement: { tokenAmount: number } }>('settleSession', { as: LEARNER, data: { bookingId } })
+    expect(settled.ok).toBe(true)
+    const amount = settled.data!.settlement.tokenAmount
+    const booking = await readBooking(bookingId)
+    const hours = (booking.durationMinutes as number) / 60
+
+    const teacherAfter = (await world.db!.doc(`users/${TEACHER}`).get()).data()!
+    const learnerAfter = (await world.db!.doc(`users/${LEARNER}`).get()).data()!
+    const teacherStats = teacherAfter.stats as Record<string, number>
+    const learnerStats = learnerAfter.stats as Record<string, number>
+    const teacherWas = teacherBefore.stats as Record<string, number>
+    const learnerWas = learnerBefore.stats as Record<string, number>
+
+    expect(teacherStats.sessionsCompleted).toBe(teacherWas.sessionsCompleted + 1)
+    expect(teacherStats.sessionsTaught).toBe(teacherWas.sessionsTaught + 1)
+    expect(teacherStats.teachingHours).toBeCloseTo(teacherWas.teachingHours + hours, 5)
+    expect(teacherStats.tokensEarned).toBeCloseTo(teacherWas.tokensEarned + amount, 5)
+    expect(learnerStats.sessionsCompleted).toBe(learnerWas.sessionsCompleted + 1)
+    expect(learnerStats.learningHours).toBeCloseTo(learnerWas.learningHours + hours, 5)
+    expect(learnerStats.tokensSpent).toBeCloseTo(learnerWas.tokensSpent + amount, 5)
+
+    expect((await world.db!.doc(`skills/${SKILL_ID}`).get()).data()!.completedCount).toBe(
+      (listingBefore.completedCount as number) + 1,
+    )
+  })
+
+  it('leaves every counter alone when the session is blocked for missing attendance', async () => {
+    const listingBefore = (await world.db!.doc(`skills/${SKILL_ID}`).get()).data()!
+    const teacherBefore = (await world.db!.doc(`users/${TEACHER}`).get()).data()!
+
+    const bookingId = await bookSession()
+    await call('respondToBooking', { as: TEACHER, data: { bookingId, action: 'confirm' } })
+    await forceInProgress(bookingId, [LEARNER, TEACHER])
+    await seedAttendance(bookingId, [{ uid: TEACHER, startMinutesFromNow: -120, minutes: 60 }])
+
+    // A blocked settlement is not an error: the call succeeds and the booking
+    // records why nothing moved.
+    const blocked = await call<{ notices: string[] }>('settleSession', { as: LEARNER, data: { bookingId } })
+    expect(blocked.ok).toBe(true)
+    expect(blocked.data!.notices.join(' ')).toMatch(/verif/i)
+    expect(((await readBooking(bookingId)).settlement as Record<string, unknown>).state).toBe('blocked')
+
+    const teacherAfter = (await world.db!.doc(`users/${TEACHER}`).get()).data()!
+    expect((teacherAfter.stats as Record<string, number>).sessionsTaught).toBe(
+      (teacherBefore.stats as Record<string, number>).sessionsTaught,
+    )
+    expect((teacherAfter.stats as Record<string, number>).tokensEarned).toBeCloseTo(
+      (teacherBefore.stats as Record<string, number>).tokensEarned,
+      5,
+    )
+    expect((await world.db!.doc(`skills/${SKILL_ID}`).get()).data()!.completedCount).toBe(listingBefore.completedCount)
+  })
+})
+
+describe('reviews after a real session', () => {
+  async function settleSession(): Promise<string> {
+    const bookingId = await bookSession()
+    await call('respondToBooking', { as: TEACHER, data: { bookingId, action: 'confirm' } })
+    await forceInProgress(bookingId, [LEARNER, TEACHER])
+    await seedAttendance(bookingId, [
+      { uid: TEACHER, startMinutesFromNow: -120, minutes: 60 },
+      { uid: LEARNER, startMinutesFromNow: -120, minutes: 60 },
+    ])
+    await call('settleSession', { as: LEARNER, data: { bookingId } })
+    return bookingId
+  }
+
+  it('accepts one review per member, updates the listing and profile aggregates, and refuses a duplicate', async () => {
+    const bookingId = await settleSession()
+
+    const review = await call<{ id: string; rating: number }>('createReview', {
+      as: LEARNER,
+      data: { bookingId, rating: 5, comment: 'Patient and structured — the hour flew by.' },
+    })
+    expect(review.ok).toBe(true)
+
+    const listing = (await world.db!.doc(`skills/${SKILL_ID}`).get()).data()!
+    expect(listing.reviewCount).toBe(1)
+    expect(listing.ratingSum).toBe(5)
+    expect(listing.completedCount).toBeGreaterThanOrEqual(1)
+
+    const teacher = (await world.db!.doc(`users/${TEACHER}`).get()).data()!
+    expect((teacher.stats as Record<string, number>).reviewCount).toBe(1)
+    expect((teacher.stats as Record<string, number>).sessionsTaught).toBeGreaterThanOrEqual(1)
+
+    // One review per member per session: the second is refused, and it is
+    // refused before any aggregate moves.
+    const duplicate = await call('createReview', { as: LEARNER, data: { bookingId, rating: 1, comment: 'again' } })
+    expect(duplicate.code).toBe('review/duplicate')
+    expect((await world.db!.doc(`skills/${SKILL_ID}`).get()).data()!.reviewCount).toBe(1)
+
+    // The teacher reviews the learner right back.
+    const counterpart = await call('createReview', { as: TEACHER, data: { bookingId, rating: 4, comment: 'Came prepared.' } })
+    expect(counterpart.ok).toBe(true)
+    expect((await world.db!.doc(`skills/${SKILL_ID}`).get()).data()!.reviewCount).toBe(1)
+
+    // A rating outside 1–5 never reaches the database.
+    const invalid = await call('createReview', { as: OUTSIDER, data: { bookingId, rating: 9 } })
+    expect(invalid.ok).toBe(false)
+  })
+})
+
+describe('disputes that move tokens', () => {
+  async function settledWithDebit(): Promise<string> {
+    const bookingId = await bookSession()
+    await call('respondToBooking', { as: TEACHER, data: { bookingId, action: 'confirm' } })
+    await forceInProgress(bookingId, [LEARNER, TEACHER])
+    await seedAttendance(bookingId, [
+      { uid: TEACHER, startMinutesFromNow: -120, minutes: 60 },
+      { uid: LEARNER, startMinutesFromNow: -120, minutes: 60 },
+    ])
+    await call('settleSession', { as: LEARNER, data: { bookingId } })
+    // The dispute is created by the client under Security Rules; the fixture
+    // writes it the way that rule allows.
+    await world.db!.doc('disputes/dsp_refund').set({
+      id: 'dsp_refund',
+      bookingId,
+      openedByUid: LEARNER,
+      againstUid: TEACHER,
+      claim: 'The session ended after twelve minutes.',
+      evidence: '',
+      status: 'open',
+      outcome: null,
+      handledByUid: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    return bookingId
+  }
+
+  it('refunds the learner out of the ledger amount, and lands in the balance sheet', async () => {
+    const bookingId = await settledWithDebit()
+    expect((await readWallet(TEACHER)).balance).toBe(1)
+    expect((await readWallet(LEARNER)).balance).toBe(2)
+
+    const result = await call('resolveDispute', {
+      as: ADMIN,
+      admin: true,
+      data: { disputeId: 'dsp_refund', status: 'resolved_refund', outcome: 'Attendance was recorded as twelve minutes.' },
+    })
+    expect(result.ok).toBe(true)
+
+    // The learner is made whole, the teacher's credit is reversed, and the
+    // ledger carries the decision with the steward as the actor.
+    expect((await readWallet(LEARNER)).balance).toBe(3)
+    expect((await readWallet(TEACHER)).balance).toBe(0)
+
+    const refund = (await ledger()).find((row) => row.type === 'refund')!
+    expect(refund).toBeDefined()
+    expect(refund.uid).toBe(LEARNER)
+    expect(refund.direction).toBe('credit')
+    expect(refund.amount).toBe(1)
+    expect(refund.createdBy).toBe(`admin:${ADMIN}`)
+    expect(String(refund.policyCode)).toContain('dispute')
+    expect(String(refund.reason)).toMatch(/dispute|steward/i)
+
+    const booking = await readBooking(bookingId)
+    expect((booking.settlement as Record<string, unknown>).state).toBe('refunded')
+
+    const dispute = (await world.db!.doc('disputes/dsp_refund').get()).data()!
+    expect(dispute.status).toBe('resolved_refund')
+    expect(dispute.handledByUid).toBe(ADMIN)
+
+    // Both members are told what happened.
+    expect((await notificationsFor(LEARNER)).some((n) => n.type === 'session_disputed')).toBe(true)
+  })
+
+  it('can release a settlement without moving a token, and refuses to resolve twice over', async () => {
+    await settledWithDebit()
+    const before = await ledger()
+
+    await call('resolveDispute', {
+      as: ADMIN,
+      admin: true,
+      data: { disputeId: 'dsp_refund', status: 'resolved_release', outcome: 'Both members attended the full hour.' },
+    })
+
+    expect(await ledger()).toHaveLength(before.length)
+    expect((await readWallet(LEARNER)).balance).toBe(2)
+    expect((await readWallet(TEACHER)).balance).toBe(1)
+  })
+})
+
+describe('moderation', () => {
+  it('hides upheld content and records the steward', async () => {
+    await world.db!.doc(`skills/${SKILL_ID}`).set({ moderation: { state: 'clean', reason: null, reviewedByUid: null, reviewedAt: null } }, { merge: true })
+    await world.db!.doc('reports/rpt_test').set({
+      id: 'rpt_test',
+      reporterUid: LEARNER,
+      targetType: 'skill',
+      targetId: SKILL_ID,
+      targetPath: `skills/${SKILL_ID}`,
+      targetLabel: 'Jazz guitar: chords and comping',
+      reason: 'misrepresentation',
+      details: 'The listing promises a level it does not teach.',
+      status: 'open',
+      priority: 'normal',
+      resolution: null,
+      handledByUid: null,
+      handledAt: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+
+    const result = await call('resolveReport', {
+      as: ADMIN,
+      admin: true,
+      data: { reportId: 'rpt_test', status: 'resolved', resolution: 'Upheld: the listing has been hidden pending an edit.' },
+    })
+    expect(result.ok).toBe(true)
+
+    const listing = (await world.db!.doc(`skills/${SKILL_ID}`).get()).data()!
+    expect((listing.moderation as Record<string, unknown>).state).toBe('hidden')
+
+    const report = (await world.db!.doc('reports/rpt_test').get()).data()!
+    expect(report.status).toBe('resolved')
+    expect(report.handledByUid).toBe(ADMIN)
+    expect((await notificationsFor(LEARNER)).some((n) => String(n.title).includes('report'))).toBe(true)
+  })
+
+  it('dismisses a report without touching the reported content', async () => {
+    await world.db!.doc('reports/rpt_dismiss').set({
+      id: 'rpt_dismiss',
+      reporterUid: LEARNER,
+      targetType: 'skill',
+      targetId: SKILL_ID,
+      targetPath: `skills/${SKILL_ID}`,
+      targetLabel: 'Jazz guitar: chords and comping',
+      reason: 'other',
+      details: 'I do not like jazz.',
+      status: 'open',
+      priority: 'low',
+      resolution: null,
+      handledByUid: null,
+      handledAt: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+
+    await call('resolveReport', {
+      as: ADMIN,
+      admin: true,
+      data: { reportId: 'rpt_dismiss', status: 'dismissed', resolution: 'No policy breach.' },
+    })
+
+    const listing = (await world.db!.doc(`skills/${SKILL_ID}`).get()).data()!
+    expect((listing.moderation as Record<string, unknown>).state).toBe('clean')
+    expect((await world.db!.doc('reports/rpt_dismiss').get()).data()!.status).toBe('dismissed')
+  })
+})
+
+describe('the hourly settlement sweep', () => {
+  it('settles a finished session that nobody closed, and skips one that is still running', async () => {
+    const abandoned = await bookSession()
+    await call('respondToBooking', { as: TEACHER, data: { bookingId: abandoned, action: 'confirm' } })
+    await forceInProgress(abandoned, [LEARNER, TEACHER])
+    await seedAttendance(abandoned, [
+      { uid: TEACHER, startMinutesFromNow: -120, minutes: 60 },
+      { uid: LEARNER, startMinutesFromNow: -120, minutes: 60 },
+    ])
+    // forceInProgress moved the end time into the past; the sweep only touches
+    // in_progress bookings older than autoSettleAfterHours (24 h), so age it.
+    await world.db!.doc(`bookings/${abandoned}`).set(
+      { endAt: new Date(Date.now() - 30 * 3_600_000), startAt: new Date(Date.now() - 31 * 3_600_000) },
+      { merge: true },
+    )
+
+    const result = await runSettlementSweep()
+    expect(result.settled).toContain(abandoned)
+    expect((await readWallet(TEACHER)).balance).toBe(1)
+    expect((await readBooking(abandoned)).status).toBe('completed')
+
+    // A second sweep is a no-op: the booking is no longer in_progress.
+    const again = await runSettlementSweep()
+    expect(again.settled).not.toContain(abandoned)
+    expect(await ledger()).toHaveLength(2)
+    expect((await readWallet(TEACHER)).balance).toBe(1)
+  })
+})
+
+describe('bootstrapPlatform', () => {
+  it('seeds the policy and backfills a wallet for a profile that has none', async () => {
+    // A member who signed up before the trigger was deployed: profile, no wallet.
+    await world.db!.doc('users/u_legacy').set({ uid: 'u_legacy', email: 'legacy@peerpulse.app', displayName: 'Legacy', role: 'member', status: 'active' })
+    await world.db!.doc('config/platform').delete()
+
+    const result = await call<{ policySeeded: boolean; walletsCreated: number }>('bootstrapPlatform', {
+      as: ADMIN,
+      admin: true,
+    })
+    expect(result.ok).toBe(true)
+    expect(result.data!.policySeeded).toBe(true)
+    expect(result.data!.walletsCreated).toBeGreaterThanOrEqual(1)
+
+    const policy = await world.db!.doc('config/platform').get()
+    expect(policy.exists).toBe(true)
+    expect(policy.data()!.version).toBe('2026.1')
+
+    const wallet = await readWallet('u_legacy')
+    expect(wallet.balance).toBe(3)
+
+    // Re-running adds nothing: every member already has a wallet.
+    const second = await call<{ walletsCreated: number }>('bootstrapPlatform', { as: ADMIN, admin: true })
+    expect(second.data!.walletsCreated).toBe(0)
+  })
+
+  it('is refused to a member without the claim', async () => {
+    const result = await call('bootstrapPlatform', { as: LEARNER })
+    expect(result.ok).toBe(false)
   })
 })

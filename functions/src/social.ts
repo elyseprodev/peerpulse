@@ -11,13 +11,16 @@ import { Timestamp, type DocumentData } from 'firebase-admin/firestore'
 import { onCall, type CallableRequest } from 'firebase-functions/v2/https'
 import {
   buildRefundWrites,
+  listingAfterReview,
   roundTokens,
+  statsAfterReview,
   type Booking,
   type DisputeCase,
   type ModerationReport,
   type Review,
   type TokenTransaction,
   type UserProfile,
+  type UserStats,
   type Wallet,
 } from './shared'
 import { fromSnapshot, toFirestore } from './lib/convert'
@@ -88,13 +91,15 @@ export const createReview = onCall(async (request: CallableRequest<CreateReviewP
       tx.set(reference, toFirestore(review) as DocumentData)
 
       // Listing score is server-side only: a teacher can never inflate it.
-      if (skillSnapshot.exists) {
-        const skill = skillSnapshot.data() as { ratingSum?: number; reviewCount?: number }
+      // The listing's stars describe the teacher, so only a review *about* the
+      // listing's owner moves them. A teacher rating a learner's punctuality
+      // stays on the learner's profile, where it belongs.
+      const skill = skillSnapshot.data() as { ownerUid?: string; ratingSum?: number; reviewCount?: number } | undefined
+      if (skillSnapshot.exists && skill && skill.ownerUid === subjectUid) {
         tx.set(
           skillReference,
           {
-            ratingSum: roundTokens((skill.ratingSum ?? 0) + rating),
-            reviewCount: (skill.reviewCount ?? 0) + 1,
+            ...listingAfterReview({ ratingSum: skill.ratingSum ?? 0, reviewCount: skill.reviewCount ?? 0 }, rating),
             updatedAt: Timestamp.now(),
           },
           { merge: true },
@@ -102,17 +107,15 @@ export const createReview = onCall(async (request: CallableRequest<CreateReviewP
       }
 
       if (subjectSnapshot.exists) {
-        const stats = (subjectSnapshot.data() as { stats?: { ratingSum?: number; ratingCount?: number } }).stats ?? {}
-        const ratingSum = roundTokens((stats.ratingSum ?? 0) + rating)
-        const ratingCount = (stats.ratingCount ?? 0) + 1
-        tx.set(
-          subjectReference,
-          {
-            stats: { ...stats, ratingSum, ratingCount, ratingAverage: roundTokens(ratingSum / ratingCount) },
-            updatedAt: Timestamp.now(),
-          },
-          { merge: true },
-        )
+        // The member's aggregate uses the field names shared/domain.ts declares
+        // (`stats.ratingSum` / `stats.reviewCount`) because that is what the
+        // profile, the member card and the member ranking read. This used to
+        // write `ratingCount`/`ratingAverage` instead, leaving `reviewCount` at
+        // zero — a member with five reviews still showed none.
+        const stats = (subjectSnapshot.data() as { stats?: UserStats }).stats
+        if (stats) {
+          tx.set(subjectReference, { stats: statsAfterReview(stats, rating), updatedAt: Timestamp.now() }, { merge: true })
+        }
       }
 
       notify(tx, {

@@ -118,6 +118,23 @@ and `updatedAt`. `role`, `status` and `stats` are server-owned; a self-promotion
 }
 ```
 
+`bookingCount`, `completedCount`, `ratingSum` and `reviewCount` are **server-maintained counters**. They are
+derivable from the bookings, settlements and reviews, but every card and every ranking would otherwise have to
+read those collections, so they are denormalised — and, like any denormalised field, they are only as good as
+the write path:
+
+| Counter | Written when | By |
+| --- | --- | --- |
+| `bookingCount` | a booking request is created against the listing | `createBooking` |
+| `completedCount` | a settlement pays for a session (never for a refund or a blocked attempt) | the settlement engine |
+| `ratingSum`, `reviewCount` | a review **about the listing's owner** is created | `createReview` |
+
+Both engines compute them through the same pure helpers in `shared/settlement.ts`
+(`statsAfterSettlement`, `statsAfterReview`, `listingAfterReview`, `listingAfterBooking`,
+`listingAfterSettlement`), which is what keeps local mode and production from drifting apart. The arithmetic
+they replaced — `stats.sessionsTaught += 1` and friends — lived only in the reference backend and the demo
+seed, so a deployed instance never moved them at all.
+
 ---
 
 ## 4. `bookings/{bookingId}` — the contract between two members

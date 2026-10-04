@@ -13,7 +13,7 @@
  *     the settlement record, the booking status and the notifications either all
  *     land or none do.
  */
-import { Timestamp, type DocumentData, type Transaction } from 'firebase-admin/firestore'
+import { FieldValue, Timestamp, type DocumentData, type Transaction } from 'firebase-admin/firestore'
 import {
   buildSettlementRecord,
   buildSettlementWrites,
@@ -27,7 +27,8 @@ import {
   type TokenTransaction,
   type Wallet,
 } from '../shared'
-import type { SettlementOutcomeResult } from '../shared'
+import type { SettlementOutcomeResult, SettlementPlan, UserStats } from '../shared'
+import { statsAfterSettlement } from '../shared'
 import { fromQuery, fromSnapshot, toFirestore } from './convert'
 import { notify, pendingCompletionNotification, sessionSettledNotification } from './notify'
 import { COLLECTIONS, db } from './refs'
@@ -46,6 +47,26 @@ interface SettlementAttempt {
   booking: Booking
   settlement: SettlementRecord | null
   notices: string[]
+}
+
+/**
+ * Writes one member's denormalised counters. The arithmetic lives in
+ * shared/settlement.ts so the reference backend and the deployed functions
+ * cannot disagree about what a settled hour adds up to.
+ */
+function writeProfileStats(
+  tx: Transaction,
+  reference: FirebaseFirestore.DocumentReference,
+  snapshot: FirebaseFirestore.DocumentSnapshot,
+  side: 'teacher' | 'learner',
+  booking: Booking,
+  plan: SettlementPlan,
+  at: Timestamp,
+): void {
+  if (!snapshot.exists) return
+  const stats = (snapshot.data() as { stats?: UserStats } | undefined)?.stats
+  if (!stats) return
+  tx.set(reference, { stats: statsAfterSettlement(stats, side, booking.durationMinutes, plan), updatedAt: at }, { merge: true })
 }
 
 async function readAttendance(tx: Transaction, roomId: string | null): Promise<AttendanceSegment[]> {
@@ -105,6 +126,13 @@ export async function settleBookingTransactionally(
     if (!teacherWallet || !learnerWallet) {
       return { booking, settlement: null, notices: ['Wallet records are missing for this session.'] }
     }
+
+    // Read the two profiles too. The counters below are computed from these
+    // snapshots, and every read must happen before the transaction's first write.
+    const teacherProfileReference = db.collection(COLLECTIONS.users).doc(booking.teacherUid)
+    const learnerProfileReference = db.collection(COLLECTIONS.users).doc(booking.learnerUid)
+    const teacherProfileSnapshot = await tx.get(teacherProfileReference)
+    const learnerProfileSnapshot = await tx.get(learnerProfileReference)
 
     const attendance = await readAttendance(tx, booking.roomId)
     const now = options.now ?? new Date()
@@ -174,6 +202,21 @@ export async function settleBookingTransactionally(
         createdAt: at,
       })
     }
+
+    // The listing's and both members' counters are denormalised for the UI (the
+    // dashboard, the rating stars, the marketplace ranking), so they are written
+    // here — a session that nobody settles is a session that did not happen.
+    // Only the two outcomes that paid for real work count; a refund or a blocked
+    // attempt leaves every counter untouched. The arithmetic itself lives in
+    // shared/settlement.ts so both engines compute the same numbers.
+    tx.set(
+      db.collection(COLLECTIONS.skills).doc(booking.skillId),
+      { completedCount: FieldValue.increment(1), updatedAt: at },
+      { merge: true },
+    )
+
+    writeProfileStats(tx, teacherProfileReference, teacherProfileSnapshot, 'teacher', booking, plan, at)
+    writeProfileStats(tx, learnerProfileReference, learnerProfileSnapshot, 'learner', booking, plan, at)
 
     tx.set(db.collection(COLLECTIONS.wallets).doc(write.nextTeacher.uid), walletWrite(write.nextTeacher, at), { merge: true })
     tx.set(db.collection(COLLECTIONS.wallets).doc(write.nextLearner.uid), walletWrite(write.nextLearner, at), { merge: true })

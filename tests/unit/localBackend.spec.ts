@@ -281,6 +281,74 @@ describe('local backend: rooms, attendance and settlement', () => {
     expect(await backend.listTransactions('demo_sam', { bookingId: booking.id })).toHaveLength(1)
   })
 
+  it('maintains the denormalised counters the dashboards and cards read', async () => {
+    // Booked → the listing counts a request; nobody has a completed session yet.
+    const booking = await requestBooking(180)
+    expect((await skillOwnedBy('demo_lena')).bookingCount).toBe(teaching.bookingCount + 1)
+
+    const teacherBefore = (await backend.getUser('demo_lena'))!
+    const learnerBefore = (await backend.getUser('demo_sam'))!
+    const listing = await skillOwnedBy('demo_lena')
+
+    await signInAs('demo_lena')
+    const confirmed = await backend.confirmBooking(booking.id)
+    await joinRoom(confirmed, ['demo_lena', 'demo_sam'])
+    vi.setSystemTime(new Date(Date.parse(booking.endAt) + 60_000))
+    await signInAs('demo_sam')
+    const result = await backend.endSession(confirmed.roomId!, 'demo_sam')
+    const amount = result.settlement!.tokenAmount
+    const hours = booking.durationMinutes / 60
+
+    const teacherAfter = (await backend.getUser('demo_lena'))!
+    const learnerAfter = (await backend.getUser('demo_sam'))!
+    expect(teacherAfter.stats.sessionsCompleted).toBe(teacherBefore.stats.sessionsCompleted + 1)
+    expect(teacherAfter.stats.sessionsTaught).toBe(teacherBefore.stats.sessionsTaught + 1)
+    expect(teacherAfter.stats.teachingHours).toBeCloseTo(teacherBefore.stats.teachingHours + hours, 5)
+    expect(teacherAfter.stats.tokensEarned).toBeCloseTo(teacherBefore.stats.tokensEarned + amount, 5)
+    expect(learnerAfter.stats.sessionsCompleted).toBe(learnerBefore.stats.sessionsCompleted + 1)
+    expect(learnerAfter.stats.learningHours).toBeCloseTo(learnerBefore.stats.learningHours + hours, 5)
+    expect(learnerAfter.stats.tokensSpent).toBeCloseTo(learnerBefore.stats.tokensSpent + amount, 5)
+
+    // A settled session counts on the listing; a name is not one of its fields.
+    expect((await skillOwnedBy('demo_lena')).completedCount).toBe(listing.completedCount + 1)
+    expect(teacherAfter.stats.sessionsTaught).toBeGreaterThan(teacherBefore.stats.sessionsTaught)
+  })
+
+  it('does not count a session that was blocked for missing attendance', async () => {
+    const booking = await confirmedBooking()
+    const teacherBefore = (await backend.getUser('demo_lena'))!
+    const listing = await skillOwnedBy('demo_lena')
+
+    await joinRoom(booking, ['demo_lena'])
+    vi.setSystemTime(new Date(Date.parse(booking.endAt) + 60_000))
+    await backend.endSession(booking.roomId!, 'demo_lena')
+
+    const teacherAfter = (await backend.getUser('demo_lena'))!
+    expect(teacherAfter.stats.sessionsTaught).toBe(teacherBefore.stats.sessionsTaught)
+    expect(teacherAfter.stats.teachingHours).toBeCloseTo(teacherBefore.stats.teachingHours, 5)
+    expect((await skillOwnedBy('demo_lena')).completedCount).toBe(listing.completedCount)
+  })
+
+  it('counts a review once, under the field names the UI reads', async () => {
+    const booking = await confirmedBooking()
+    const listingBefore = await skillOwnedBy('demo_lena')
+    const subjectBefore = (await backend.getUser('demo_lena'))!
+
+    await joinRoom(booking, ['demo_lena', 'demo_sam'])
+    vi.setSystemTime(new Date(Date.parse(booking.endAt) + 60_000))
+    await backend.endSession(booking.roomId!, 'demo_sam')
+
+    await signInAs('demo_sam')
+    await backend.createReview({ bookingId: booking.id, authorUid: 'demo_sam', rating: 4, comment: 'Clear and patient.', tags: [] })
+
+    const subjectAfter = (await backend.getUser('demo_lena'))!
+    const listingAfter = await skillOwnedBy('demo_lena')
+    expect(subjectAfter.stats.reviewCount).toBe(subjectBefore.stats.reviewCount + 1)
+    expect(subjectAfter.stats.ratingSum).toBeCloseTo(subjectBefore.stats.ratingSum + 4, 5)
+    expect(listingAfter.reviewCount).toBe(listingBefore.reviewCount + 1)
+    expect(listingAfter.ratingSum).toBeCloseTo(listingBefore.ratingSum + 4, 5)
+  })
+
   it('refuses to settle a session nobody attended together', async () => {
     const booking = await confirmedBooking()
     const roomId = booking.roomId!
