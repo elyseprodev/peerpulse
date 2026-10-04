@@ -64,7 +64,7 @@
 | **Objective** | Two members can hold a real audio/video session with verified attendance. |
 | **Deliverables** | `useWebRTC` composable; video room page; Firestore signalling rules; `getTurnCredentials` function and coturn config; `docs/webrtc-signaling.md`. |
 | **Acceptance criteria** | Two browsers connect and reconnect after a reload; media never transits Firestore; a third account cannot read the room, its presence or its signalling (rules test); camera-denied still yields a usable room; presence heartbeat writes attendance segments; join is disabled > 15 min before the start; TURN credentials for two different callers differ and expire. |
-| **Status** | 🟡 implemented (`useWebRTC.ts`, `VideoRoomPage.vue`, `functions/src/rooms.ts`, rules spec). Two-tab verification on the local backend is the manual test in `docs/webrtc-signaling.md` §12; the join-window and TURN-credential logic of `openRoom`/`getTurnCredentials` is asserted in `functions/tests`. Real media still needs two browsers. |
+| **Status** | 🟡 implemented (`useWebRTC.ts`, `VideoRoomPage.vue`, `functions/src/rooms.ts`, rules spec). The negotiation logic now has executable coverage (`tests/unit/webrtc.spec.ts`, 15 tests) — offerer election, glare, the ICE queue, teardown, media warnings and the read-only-room guard — and the join window and TURN minting are asserted in `functions/tests`. Real media still needs two browsers: the tests prove the sequencing, not that sound comes out. |
 
 ### Week 6 — Settlement engine
 

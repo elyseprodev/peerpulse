@@ -44,7 +44,7 @@ database through `localStorage`.
 | `npm run dev` | Vite dev server on `0.0.0.0:5173` (local backend) |
 | `npm run build` | Typecheck (`vue-tsc`) then build to `dist/` |
 | `npm run typecheck` | Strict TypeScript check of app, shared and tests |
-| `npm test` | Vitest unit + integration suite (146 tests) |
+| `npm test` | Vitest unit + integration suite (161 tests) |
 | `cd functions && npm test` | Cloud Functions, executed against a real Admin SDK (43 tests) |
 | `npm run test:rules` | Firestore emulator security-rules suite (**needs a JDK**) |
 | `npm run sync:shared` | Mirror `shared/*` into `functions/src/shared/` |
@@ -120,15 +120,19 @@ Honesty is a feature of this repository, so it is stated on the front page:
 
 **Verified in this repository**
 
-- 146 unit/integration tests pass (`npm test`): the token maths and its boundaries, booking conflicts and
+- 161 unit/integration tests pass (`npm test`): the token maths and its boundaries, booking conflicts and
   lifecycle, attendance verification and every settlement outcome, the whole reference backend, the
   accessibility-relevant behaviour of the UI primitives, a route smoke test that mounts the real app and walks
   every route in the table (guards included) asserting that each one renders without a render error, and an
   index-coverage test that pins every composite-index-shaped Firestore query to a declared index — written
   after it found three missing ones, including the index the hourly auto-settlement sweep needs — and a
   seed-integrity audit that re-derives every counter, score and balance in the demo world from the data behind
-  it. That audit found two demo-data defects; the seed now derives its counters through the same shared
-  helpers the engines use instead of incrementing them by hand.
+  it (that audit found two demo-data defects; the seed now derives its counters through the same shared helpers
+  the engines use) and a WebRTC negotiation suite that exercises offerer election, glare, the ICE queue and
+  teardown with a fake peer connection. The WebRTC suite found two more defects: a permission warning that was
+  wiped by the next state transition (a member could join with no camera and no explanation) and a `canPublish`
+  option the room page passed but the composable never read, so a finished session's room would still have
+  opened a camera.
 - 43 Cloud Functions tests pass (`cd functions && npm test`). The real callables, the auth provisioning trigger
   and the settlement sweep run unmodified against a real
   `firebase-admin` SDK (Firestore gRPC + Identity Toolkit, via `firebase-mocker`), and they assert the product's

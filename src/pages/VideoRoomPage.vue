@@ -283,6 +283,23 @@ function copyRoomLink(): void {
         </div>
       </div>
 
+      <!-- Media problems do not stop the call, so they get their own notice
+           rather than the connection error above. -->
+      <div
+        v-else-if="webrtc.mediaWarning.value"
+        class="mt-5 flex items-start gap-2.5 rounded-xl border border-warn/35 bg-warn/10 p-3.5 text-sm text-warn"
+        role="status"
+      >
+        <AppIcon name="mic-off" :size="17" class="mt-0.5" />
+        <div>
+          <p class="font-medium">{{ webrtc.mediaWarning.value }}</p>
+          <p class="mt-1 text-xs">
+            The session still counts for the time you are both present — attendance is measured from presence,
+            not from whether a camera was on.
+          </p>
+        </div>
+      </div>
+
       <div class="mt-6 grid gap-5 lg:grid-cols-[1.7fr_1fr]">
         <!-- Stage -->
         <section class="space-y-4">

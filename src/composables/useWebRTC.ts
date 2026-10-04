@@ -47,6 +47,14 @@ export function useWebRTC(options: WebRTCSessionOptions) {
   const remoteStream = shallowRef<MediaStream | null>(null)
   const connectionState = ref<RoomConnectionState>('idle')
   const error = ref<string | null>(null)
+  /**
+   * Why the member is in the room without a camera or a microphone. A separate
+   * signal from `error` on purpose: the call itself is fine, so the connection
+   * state has to keep moving (the peer is waiting), but the member still needs to
+   * be told why nobody can see or hear them. `error` cannot carry that — the next
+   * state transition legitimately clears it.
+   */
+  const mediaWarning = ref<string | null>(null)
   const media = ref<MediaState>({ camera: false, microphone: false, screen: false })
   const remoteMedia = ref<MediaState>({ camera: false, microphone: false, screen: false })
   const peerPresent = ref(false)
@@ -266,17 +274,16 @@ export function useWebRTC(options: WebRTCSessionOptions) {
         microphone: stream.getAudioTracks().length > 0,
         screen: false,
       }
+      mediaWarning.value = null
     } catch (e) {
       const name = e instanceof DOMException ? e.name : 'Error'
       if (name === 'NotAllowedError' || name === 'SecurityError') {
-        setState(
-          'error',
-          'Camera and microphone access was blocked. Allow permissions in your browser, then rejoin the room.',
-        )
+        mediaWarning.value =
+          'Camera and microphone access was blocked, so the other member cannot see or hear you. Allow permissions in your browser, then turn the camera on below or rejoin.'
       } else if (name === 'NotFoundError' || name === 'OverconstrainedError') {
-        setState('error', 'No camera or microphone was found. You can still join to listen and chat.')
+        mediaWarning.value = 'No camera or microphone was found. You can still watch and listen, and use the chat.'
       } else {
-        setState('error', 'Could not start your camera or microphone. Please try again.')
+        mediaWarning.value = 'Your camera and microphone did not start. You can watch and listen, and try again below.'
       }
       throw e
     }
@@ -299,6 +306,15 @@ export function useWebRTC(options: WebRTCSessionOptions) {
     const instance = await getBackendInstance()
     const roomId = options.roomId.value
     const selfUid = options.selfUid.value
+
+    // A finished session's room is read-only. The room page also refuses to join
+    // one, but the option was declared here and never read: a caller that reached
+    // start() would have turned on a camera in a session that has already been
+    // settled, which is both pointless and unsettling for the other member.
+    if (!options.canPublish.value) {
+      setState('error', 'This session has ended, so the room is read-only. Rebook to meet again.')
+      return
+    }
 
     try {
       await acquireMedia()
@@ -357,6 +373,7 @@ export function useWebRTC(options: WebRTCSessionOptions) {
         const peer = await ensurePeer()
         peer.addTrack(newTrack, localStream.value)
         media.value = { ...media.value, camera: true }
+        mediaWarning.value = null
         await syncPresence()
       } catch {
         error.value = 'Camera permission is still blocked.'
@@ -480,6 +497,7 @@ export function useWebRTC(options: WebRTCSessionOptions) {
     error,
     media,
     remoteMedia,
+    mediaWarning,
     peerPresent,
     start,
     stop,
