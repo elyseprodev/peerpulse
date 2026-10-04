@@ -250,6 +250,34 @@
         { "fieldPath": "learnerUid", "order": "ASCENDING" },
         { "fieldPath": "startAt", "order": "DESCENDING" }
       ]
+    },
+    {
+      "//": "Notification list and live listener: one member's notifications, newest first. Firestore cannot serve an equality filter plus a different sort field from single-field indexes, and both listNotifications and watchNotifications issue this shape - without it, the bell and the notifications page fail on a deployed project.",
+      "collectionGroup": "notifications",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "uid", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "//": "The hourly auto-settlement sweep: in_progress bookings whose endAt is behind the cutoff. An equality filter combined with a range on a different field also needs a composite index; this is the automatic-payment path, so a missing index would silently stop every session from settling rather than fail loudly at request time.",
+      "collectionGroup": "bookings",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "endAt", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "//": "One booking's own ledger rows, newest first (the wallet page's per-booking filter and the settlement audit trail). The file declared the same fields ASCENDING, which no query asks for - a sort direction is part of the index, so ascending does not serve this.",
+      "collectionGroup": "tokenTransactions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "uid", "order": "ASCENDING" },
+        { "fieldPath": "bookingId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": [
@@ -257,9 +285,7 @@
       "//": "Signalling documents are disposable; expire them with a TTL policy so a busy room cannot accumulate a transcript of the call.",
       "collectionGroup": "signaling",
       "fieldPath": "expiresAt",
-      "ttlConfig": {
-        "expirationOffset": 0
-      }
+      "ttlConfig": {"expirationOffset": 0}
     }
   ]
 }

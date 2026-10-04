@@ -157,6 +157,38 @@ One-shot alternative: `npx firebase deploy` (hosting + functions + rules + index
 **Expected first-deploy output.** The functions deploy prints 18 endpoints: 15 callables, the
 `onUserCreated` auth trigger, the `hourlySettlementSweep` scheduled function and `healthcheck`.
 
+### 4.1 Composite indexes — deploy them *with* the first release
+
+`firestore.indexes.json` holds 30 composite indexes. They matter more than they look: an index is
+deployment configuration whose absence only shows up when a real user triggers the query, at which point
+Firestore throws `FAILED_PRECONDITION: The query requires an index` and the screen goes blank. The emulator
+does not reproduce it (it builds indexes on demand) and the reference backend has none, so neither test suite
+can catch a missing index by running the app.
+
+`tests/unit/indexes.spec.ts` closes that hole statically: it lists every query shape the app issues that needs
+a composite index — with the file and function that issues it — and fails if `firestore.indexes.json` stops
+covering one. It also fails if the file declares an index that no query claims and nothing explains, because an
+unused index still costs every write.
+
+Three indexes were missing when that test was written, and all three would have failed in production:
+
+| Missing index | Query | What would have broken |
+| --- | --- | --- |
+| `notifications(uid, createdAt DESC)` | `listNotifications`, `watchNotifications` | the notification bell and page — a core feature — would have thrown on first load |
+| `bookings(status, endAt)` | `autoSettleFinishedSessions` | **every** hourly sweep would have thrown, so no session would ever auto-settle; a silent, scheduled failure |
+| `tokenTransactions(uid, bookingId, createdAt DESC)` | the per-booking ledger filter | the wallet page's session-by-session breakdown and the settlement audit trail |
+
+Deploying indexes is therefore part of the release, not an afterthought:
+
+```bash
+npm run deploy:rules        # firestore:rules + firestore:indexes
+npx firebase firestore:indexes   # list what the project actually has, to confirm the deploy landed
+```
+
+Index builds are asynchronous on a live project — the console shows them as "Building". The first query that
+needs one may fail until the build finishes; for a fresh project the build is seconds, but deploy the indexes
+before you announce a launch, not after.
+
 ---
 
 ## 5. First-run provisioning (in this order)

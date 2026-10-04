@@ -44,7 +44,7 @@ database through `localStorage`.
 | `npm run dev` | Vite dev server on `0.0.0.0:5173` (local backend) |
 | `npm run build` | Typecheck (`vue-tsc`) then build to `dist/` |
 | `npm run typecheck` | Strict TypeScript check of app, shared and tests |
-| `npm test` | Vitest unit + integration suite (119 tests) |
+| `npm test` | Vitest unit + integration suite (134 tests) |
 | `cd functions && npm test` | Cloud Functions, executed against a real Admin SDK (43 tests) |
 | `npm run test:rules` | Firestore emulator security-rules suite (**needs a JDK**) |
 | `npm run sync:shared` | Mirror `shared/*` into `functions/src/shared/` |
@@ -120,10 +120,12 @@ Honesty is a feature of this repository, so it is stated on the front page:
 
 **Verified in this repository**
 
-- 119 unit/integration tests pass (`npm test`): the token maths and its boundaries, booking conflicts and
+- 134 unit/integration tests pass (`npm test`): the token maths and its boundaries, booking conflicts and
   lifecycle, attendance verification and every settlement outcome, the whole reference backend, the
-  accessibility-relevant behaviour of the UI primitives, and a route smoke test that mounts the real app and
-  walks every route in the table (guards included) asserting that each one renders without a render error.
+  accessibility-relevant behaviour of the UI primitives, a route smoke test that mounts the real app and walks
+  every route in the table (guards included) asserting that each one renders without a render error, and an
+  index-coverage test that pins every composite-index-shaped Firestore query to a declared index — written
+  after it found three missing ones, including the index the hourly auto-settlement sweep needs.
 - 43 Cloud Functions tests pass (`cd functions && npm test`). The real callables, the auth provisioning trigger
   and the settlement sweep run unmodified against a real
   `firebase-admin` SDK (Firestore gRPC + Identity Toolkit, via `firebase-mocker`), and they assert the product's

@@ -12,7 +12,7 @@ npm ci                      # install (root)
 cd functions && npm install # install the functions project, then `cd ..`
 
 npm run typecheck           # vue-tsc, strict, app + shared + tests
-npm test                    # vitest, jsdom, tests/unit/**  → 119 tests
+npm test                    # vitest, jsdom, tests/unit/**  → 134 tests
 npm run build               # production build to dist/
 npm run dev                 # local mode at http://localhost:5173 (binds 0.0.0.0)
 
@@ -31,7 +31,7 @@ npm run deploy:hosting      # builds the app, deploys
 
 ---
 
-## 2. Unit suites (119 tests, all passing locally)
+## 2. Unit suites (134 tests, all passing locally)
 
 | Suite | Tests | Proves |
 | --- | --- | --- |
